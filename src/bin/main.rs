@@ -12,6 +12,14 @@ use smart_leds::{brightness, gamma, hsv::{hsv2rgb, Hsv}, SmartLedsWrite, RGB8};
 
 extern crate alloc;
 
+use core::panic::PanicInfo;
+
+// Define the panic handler for ESP32 (or other embedded environments)
+#[panic_handler]
+fn panic(_info: &PanicInfo) -> ! {
+    loop {} // Infinite loop to halt execution
+}
+
 #[main]
 fn main() -> ! {
     // generator version: 0.2.2
