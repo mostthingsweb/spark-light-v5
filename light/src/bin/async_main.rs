@@ -1,47 +1,48 @@
 #![no_std]
 #![no_main]
 
-use esp_hal::clock::CpuClock;
-use esp_hal::delay::Delay;
-use esp_hal::main;
+use embassy_executor::Spawner;
+use embassy_time::{Duration, Timer};
+use esp_backtrace as _;
 use esp_hal::rmt::Rmt;
 use esp_hal::time::RateExtU32;
-use esp_hal::timer::timg::TimerGroup;
+use esp_hal::clock::CpuClock;
+use log::info;
+
 use esp_hal_smartled::{smartLedBuffer, SmartLedsAdapter};
 use smart_leds::{brightness, gamma, hsv::{hsv2rgb, Hsv}, SmartLedsWrite, RGB8};
 
 extern crate alloc;
 
-use core::panic::PanicInfo;
-
-// Define the panic handler for ESP32 (or other embedded environments)
-#[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
-    loop {} // Infinite loop to halt execution
-}
-
-#[main]
-fn main() -> ! {
+#[esp_hal_embassy::main]
+async fn main(spawner: Spawner) {
     // generator version: 0.2.2
 
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(config);
 
-    esp_println::logger::init_logger_from_env();
-
     esp_alloc::heap_allocator!(72 * 1024);
 
-    let timg0 = TimerGroup::new(peripherals.TIMG0);
+    esp_println::logger::init_logger_from_env();
+
+    let timer0 = esp_hal::timer::systimer::SystemTimer::new(peripherals.SYSTIMER);
+    esp_hal_embassy::init(timer0.alarm0);
+
+    info!("Embassy initialized!");
+
+    let timer1 = esp_hal::timer::timg::TimerGroup::new(peripherals.TIMG0);
     let _init = esp_wifi::init(
-        timg0.timer0,
+        timer1.timer0,
         esp_hal::rng::Rng::new(peripherals.RNG),
         peripherals.RADIO_CLK,
     )
     .unwrap();
 
+    // TODO: Spawn some tasks
+    let _ = spawner;
+
     let freq = 80.MHz();
     let rmt = Rmt::new(peripherals.RMT, freq).unwrap();
-
     let rmt_buffer = smartLedBuffer!(8);
 
     let mut led = SmartLedsAdapter::new(rmt.channel0, peripherals.GPIO35, rmt_buffer);
@@ -56,7 +57,6 @@ fn main() -> ! {
     };
     let mut data;
 
-    let delay = Delay::new();
     loop {
         for hue in 0..=255 {
             color.hue = hue;
@@ -86,7 +86,7 @@ fn main() -> ! {
                  .unwrap();
             led4.write(data2.iter().cloned())
                 .unwrap();
-            delay.delay_millis(20);
+            Timer::after(Duration::from_millis(20)).await;
         }
     }
 
