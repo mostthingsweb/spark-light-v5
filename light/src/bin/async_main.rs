@@ -5,7 +5,7 @@ use embassy_executor::Spawner;
 use embassy_time::{Duration, Timer};
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
-use esp_hal::gpio::{AnyPin, Output, OutputPin};
+use esp_hal::gpio::{AnyPin, Input, Io, Output, OutputPin, Pull};
 use esp_hal::peripheral::Peripheral;
 use esp_hal::rmt::{Channel, Rmt};
 use esp_hal::time::RateExtU32;
@@ -99,4 +99,9 @@ async fn main(spawner: Spawner) {
     let led4 = SmartLedsAdapter::new(rmt.channel3, peripherals.GPIO37, rmt_buffer);
 
     spawner.spawn(light_task(led1, led2, led3, led4)).unwrap();
+
+    let mut io = Io::new(peripherals.IO_MUX);
+
+    let mut irq_pin = Input::new(peripherals.GPIO4, Pull::Up);
+
 }
