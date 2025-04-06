@@ -404,6 +404,7 @@ dependencies = [
  "esp-metadata",
  "esp-riscv-rt",
  "esp-synopsys-usb-otg",
+ "esp32",
  "esp32s3",
  "fugit",
  "instability",
@@ -539,6 +540,16 @@ checksum = "c6b5438361891c431970194a733415006fb3d00b6eb70b3dcb66fd58f04d9b39"
 dependencies = [
  "anyhow",
  "log",
+]
+
+[[package]]
+name = "esp32"
+version = "0.35.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "19d3bff1d268a4b8d34b494c0e88466cd59a827bb330189773db299ff525ea13"
+dependencies = [
+ "critical-section",
+ "vcell",
 ]
 
 [[package]]
@@ -710,9 +721,9 @@ checksum = "78ca9ab1a0babb1e7d5695e3530886289c18cf2f87ec19a575a0abdce112e3a3"
 
 [[package]]
 name = "minijinja"
-version = "2.8.0"
+version = "2.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e36f1329330bb1614c94b78632b9ce45dd7d761f3304a1bed07b2990a7c5097"
+checksum = "98642a6dfca91122779a307b77cd07a4aa951fbe32232aaf5bad9febc66be754"
 dependencies = [
  "serde",
 ]
@@ -874,6 +885,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
 
 [[package]]
+name = "remote"
+version = "0.1.0"
+dependencies = [
+ "critical-section",
+ "esp-alloc",
+ "esp-backtrace",
+ "esp-hal",
+ "esp-println",
+ "log",
+]
+
+[[package]]
 name = "rgb"
 version = "0.8.50"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -965,6 +988,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "shared"
+version = "0.1.0"
+
+[[package]]
 name = "smart-leds"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1009,6 +1036,7 @@ dependencies = [
  "esp-wifi",
  "heapless",
  "log",
+ "shared",
  "smart-leds",
  "smoltcp",
 ]
