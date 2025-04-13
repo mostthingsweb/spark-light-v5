@@ -2,16 +2,11 @@
 #![no_main]
 
 use async_button::{Button, ButtonConfig};
-use core::cell::RefCell;
-use critical_section::Mutex;
 use embassy_executor::Spawner;
-use embassy_time::{Duration, Timer};
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
-use esp_hal::gpio::{Event, Input, Io, Pull};
-use esp_hal::handler;
-use esp_hal::interrupt::InterruptConfigurable;
-use esp_println::{print, println};
+use esp_hal::gpio::{Input, Pull};
+use esp_println::println;
 use log::info;
 
 extern crate alloc;
