@@ -45,62 +45,28 @@ async fn main(spawner: Spawner) {
 
     let mut async_button = Button::new(Input::new(peripherals.GPIO21, Pull::Up), ButtonConfig::default());
     let mut async_button2 = Button::new(Input::new(peripherals.GPIO0, Pull::Up), ButtonConfig::default());
+    let mut async_button3 = Button::new(Input::new(peripherals.GPIO14, Pull::Up), ButtonConfig::default());
+    let mut async_button4 = Button::new(Input::new(peripherals.GPIO35, Pull::Up), ButtonConfig::default());
 
     loop {
         let event1 = async_button.update();
         let event2 = async_button2.update();
+        let event3 = async_button3.update();
+        let event4 = async_button4.update();
 
-        match embassy_futures::select::select(event1, event2).await {
-            embassy_futures::select::Either::First(e) => {
+        match embassy_futures::select::select4(event1, event2, event3, event4).await {
+            embassy_futures::select::Either4::First(e) => {
                 println!("button1: {:?}", e);
-            },
-            embassy_futures::select::Either::Second(e) => {
+            }
+            embassy_futures::select::Either4::Second(e) => {
                 println!("button2: {:?}", e);
-            },
+            }
+            embassy_futures::select::Either4::Third(e) => {
+                println!("button3: {:?}", e);
+            }
+            embassy_futures::select::Either4::Fourth(e) => {
+                println!("button4: {:?}", e);
+            }
         }
     }
 }
-
-// // You will need to store the `Input` object in a static variable so
-// // that the interrupt handler can access it.
-// static BUTTON: Mutex<RefCell<Option<Input>>> = Mutex::new(RefCell::new(None));
-// static BUTTON2: Mutex<RefCell<Option<Input>>> = Mutex::new(RefCell::new(None));
-
-// #[handler]
-// fn handler() {
-//     critical_section::with(|cs| {
-//         let mut button = BUTTON.borrow_ref_mut(cs);
-//         let Some(button) = button.as_mut() else {
-//             // Some other interrupt has occurred
-//             // before the button was set up.
-//             return;
-//         };
-
-//         if button.is_interrupt_set() {
-//             println!("Button pressed");
-
-//             // If you want to stop listening for interrupts, you need to
-//             // call `unlisten` here. If you comment this line, the
-//             // interrupt will fire continuously while the button
-//             // is pressed.
-//             //button.unlisten();
-//         }
-
-//         let mut button2 = BUTTON2.borrow_ref_mut(cs);
-//         let Some(button2) = button2.as_mut() else {
-//             // Some other interrupt has occurred
-//             // before the button was set up.
-//             return;
-//         };
-
-//         if button2.is_interrupt_set() {
-//             println!("Button2 pressed");
-
-//             // If you want to stop listening for interrupts, you need to
-//             // call `unlisten` here. If you comment this line, the
-//             // interrupt will fire continuously while the button
-//             // is pressed.
-//             //button.unlisten();
-//         }
-//     });
-// }
