@@ -1,8 +1,8 @@
 #![no_std]
 #![no_main]
 
-use core::cell::RefCell;
 use async_button::{Button, ButtonConfig};
+use core::cell::RefCell;
 use critical_section::Mutex;
 use embassy_executor::Spawner;
 use embassy_time::{Duration, Timer};
@@ -43,10 +43,22 @@ async fn main(spawner: Spawner) {
     // TODO: Spawn some tasks
     let _ = spawner;
 
-    let mut async_button = Button::new(Input::new(peripherals.GPIO21, Pull::Up), ButtonConfig::default());
-    let mut async_button2 = Button::new(Input::new(peripherals.GPIO0, Pull::Up), ButtonConfig::default());
-    let mut async_button3 = Button::new(Input::new(peripherals.GPIO14, Pull::Up), ButtonConfig::default());
-    let mut async_button4 = Button::new(Input::new(peripherals.GPIO35, Pull::Up), ButtonConfig::default());
+    let mut async_button = Button::new(
+        Input::new(peripherals.GPIO21, Pull::Up),
+        ButtonConfig::default(),
+    );
+    let mut async_button2 = Button::new(
+        Input::new(peripherals.GPIO0, Pull::Up),
+        ButtonConfig::default(),
+    );
+    let mut async_button3 = Button::new(
+        Input::new(peripherals.GPIO14, Pull::Up),
+        ButtonConfig::default(),
+    );
+    let mut async_button4 = Button::new(
+        Input::new(peripherals.GPIO35, Pull::Up),
+        ButtonConfig::default(),
+    );
 
     loop {
         let event1 = async_button.update();
