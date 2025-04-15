@@ -1,6 +1,8 @@
+use std::time::Duration;
+
 use async_button::{Button, ButtonConfig, ButtonEvent};
 use embassy_executor::Executor;
-use esp_idf_svc::hal::{gpio::PinDriver, prelude::Peripherals, task::block_on};
+use esp_idf_svc::hal::{cpu::{self, core}, gpio::PinDriver, i2c::I2cSlaveConfig, prelude::Peripherals, task::block_on};
 use futures_util::{select, FutureExt};
 use static_cell::StaticCell;
 
@@ -8,9 +10,10 @@ static EXECUTOR: StaticCell<Executor> = StaticCell::new();
 
 #[embassy_executor::task]
 async fn run() {
+    println!("Starting control_led() on core {:?}", core());
+
     let peripherals = Peripherals::take().unwrap();
 
-    
     let mut async_button = Button::new(
         PinDriver::input(peripherals.pins.gpio21).unwrap(),
         ButtonConfig::default(),
@@ -51,6 +54,22 @@ async fn run() {
     }
 }
 
+fn i2c_loop() {
+    loop {
+        std::thread::sleep(Duration::from_secs(2));
+        println!("s");
+    }
+    // let mut rx_buf: [u8; 8] = [0; 8];
+    // let config = I2cSlaveConfig::new()
+    //     .rx_buffer_length(SLAVE_BUFFER_SIZE)
+    //     .tx_buffer_length(SLAVE_BUFFER_SIZE);
+    // let driver = I2cSlaveDriver::new(Peripherals::, sda, scl, slave_addr, &config)?;
+    
+}
+
+const SLAVE_ADDR: u8 = 0x22;
+const SLAVE_BUFFER_SIZE: usize = 128;
+
 fn main() -> anyhow::Result<()> {
     // It is necessary to call this function once. Otherwise some patches to the runtime
     // implemented by esp-idf-sys might not link properly. See https://github.com/esp-rs/esp-idf-template/issues/71
@@ -59,10 +78,23 @@ fn main() -> anyhow::Result<()> {
     // Bind the log crate to the ESP Logging facilities
     esp_idf_svc::log::EspLogger::initialize_default();
 
-    let executor = EXECUTOR.init(Executor::new());
-    executor.run(|spawner| {
-        spawner.spawn(run()).unwrap();
-    });
+    let thread0 = std::thread::Builder::new()
+    .stack_size(7000)
+    .spawn(move || {
+        let executor = EXECUTOR.init(Executor::new());
+        executor.run(|spawner| {
+            spawner.spawn(run()).unwrap();
+        });
+    })?;
+
+    let thread1 = std::thread::Builder::new()
+    .stack_size(7000)
+    .spawn(move || { 
+        i2c_loop();
+    })?;
+
+    thread0.join().unwrap();
+    thread1.join().unwrap();
 
     Ok(())
 }
