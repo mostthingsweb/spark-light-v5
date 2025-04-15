@@ -1,33 +1,32 @@
-use std::time::Duration;
+use std::{default, time::Duration};
 
 use async_button::{Button, ButtonConfig, ButtonEvent};
 use embassy_executor::Executor;
-use esp_idf_svc::hal::{cpu::{self, core}, gpio::PinDriver, i2c::I2cSlaveConfig, prelude::Peripherals, task::block_on};
+use esp_idf_svc::hal::{cpu::{self, core}, gpio::{Gpio0, Gpio14, Gpio21, Gpio35, Input, InputPin, OutputPin, PinDriver}, i2c::{I2c, I2cSlaveConfig, I2cSlaveDriver}, peripheral::Peripheral, prelude::Peripherals, task::block_on};
 use futures_util::{select, FutureExt};
 use static_cell::StaticCell;
+use esp_idf_svc::hal::task::thread::ThreadSpawnConfiguration;
 
 static EXECUTOR: StaticCell<Executor> = StaticCell::new();
 
 #[embassy_executor::task]
-async fn run() {
+async fn run(p0: Gpio0, p21: Gpio21, p14: Gpio14, p35: Gpio35) {
     println!("Starting control_led() on core {:?}", core());
 
-    let peripherals = Peripherals::take().unwrap();
-
     let mut async_button = Button::new(
-        PinDriver::input(peripherals.pins.gpio21).unwrap(),
+        PinDriver::input(p21).unwrap(),
         ButtonConfig::default(),
     );
     let mut async_button2 = Button::new(
-        PinDriver::input(peripherals.pins.gpio0).unwrap(),
+        PinDriver::input(p0).unwrap(),
         ButtonConfig::default(),
     );
     let mut async_button3 = Button::new(
-        PinDriver::input(peripherals.pins.gpio14).unwrap(),
+        PinDriver::input(p14).unwrap(),
         ButtonConfig::default(),
     );
     let mut async_button4 = Button::new(
-        PinDriver::input(peripherals.pins.gpio35).unwrap(),
+        PinDriver::input(p35).unwrap(),
         ButtonConfig::default(),
     );
 
@@ -54,17 +53,21 @@ async fn run() {
     }
 }
 
-fn i2c_loop() {
+fn i2c_loop<'d, I2C: I2c>(i2c: impl Peripheral<P = I2C> + 'd, sda: impl Peripheral<P = impl InputPin + OutputPin> + 'd, scl: impl Peripheral<P = impl InputPin + OutputPin> + 'd) -> anyhow::Result<()> {
+    println!("Starting i2c_loop() on core {:?}", core());
+
+    let mut rx_buf: [u8; 8] = [0; 8];
+    let config = I2cSlaveConfig::new()
+        .rx_buffer_length(SLAVE_BUFFER_SIZE)
+        .tx_buffer_length(SLAVE_BUFFER_SIZE);
+    let driver = I2cSlaveDriver::new(i2c, sda, scl, SLAVE_ADDR, &config)?;
+    
     loop {
         std::thread::sleep(Duration::from_secs(2));
         println!("s");
     }
-    // let mut rx_buf: [u8; 8] = [0; 8];
-    // let config = I2cSlaveConfig::new()
-    //     .rx_buffer_length(SLAVE_BUFFER_SIZE)
-    //     .tx_buffer_length(SLAVE_BUFFER_SIZE);
-    // let driver = I2cSlaveDriver::new(Peripherals::, sda, scl, slave_addr, &config)?;
     
+    Ok(())
 }
 
 const SLAVE_ADDR: u8 = 0x22;
@@ -78,22 +81,34 @@ fn main() -> anyhow::Result<()> {
     // Bind the log crate to the ESP Logging facilities
     esp_idf_svc::log::EspLogger::initialize_default();
 
+    let peripherals = Peripherals::take()?;
+
+    ThreadSpawnConfiguration {
+        pin_to_core: Some(cpu::Core::Core0),
+        ..Default::default()
+    }.set().unwrap();
+
     let thread0 = std::thread::Builder::new()
     .stack_size(7000)
     .spawn(move || {
         let executor = EXECUTOR.init(Executor::new());
         executor.run(|spawner| {
-            spawner.spawn(run()).unwrap();
+            spawner.spawn(run(peripherals.pins.gpio0, peripherals.pins.gpio21, peripherals.pins.gpio14, peripherals.pins.gpio35)).unwrap();
         });
     })?;
+
+    ThreadSpawnConfiguration {
+        pin_to_core: Some(cpu::Core::Core1),
+        ..Default::default()
+    }.set().unwrap();
 
     let thread1 = std::thread::Builder::new()
     .stack_size(7000)
     .spawn(move || { 
-        i2c_loop();
+        i2c_loop(peripherals.i2c0, peripherals.pins.gpio1, peripherals.pins.gpio2).unwrap();
     })?;
 
-    thread0.join().unwrap();
+    //thread0.join().unwrap();
     thread1.join().unwrap();
 
     Ok(())
