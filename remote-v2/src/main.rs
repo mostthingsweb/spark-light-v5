@@ -6,7 +6,9 @@ use std::{
 };
 
 use esp_idf_svc::{
-    espnow::EspNow, eventloop::EspSystemEventLoop, hal::{
+    espnow::EspNow,
+    eventloop::EspSystemEventLoop,
+    hal::{
         delay::BLOCK,
         gpio::{AnyIOPin, AnyInputPin, IOPin, Input, InputPin, InterruptType, Level, PinDriver},
         i2c::{I2c, I2cSlaveConfig, I2cSlaveDriver},
@@ -15,8 +17,14 @@ use esp_idf_svc::{
         prelude::Peripherals,
         task::{self, notification::Notification, yield_now},
         timer::Timer,
-    }, nvs::EspDefaultNvsPartition, sys::{sleep, DR_REG_GPIO_BASE}, timer::EspTimerService, wifi::{BlockingWifi, EspWifi}
+        units::Hertz,
+    },
+    nvs::EspDefaultNvsPartition,
+    sys::{sleep, DR_REG_GPIO_BASE},
+    timer::EspTimerService,
+    wifi::{BlockingWifi, EspWifi},
 };
+use shared::Test;
 
 struct ButtonControlBlock<'a> {
     button: Button,
@@ -194,11 +202,12 @@ fn esp_now_task<'d, MODEM: WifiModemPeripheral>(
     let espnow: EspNow<'_> = EspNow::take().unwrap();
 
     loop {
-       let ret = receiver.recv_timeout(Duration::from_secs(10));
+        let ret = receiver.recv_timeout(Duration::from_secs(10));
     }
-
-    Ok(())
 }
+
+const SLAVE_ADDR: u8 = 0x23;
+const SLAVE_BUFFER_SIZE: usize = 128;
 
 fn i2c_task<'d, M: I2c>(
     i2c: impl Peripheral<P = M> + 'd,
@@ -209,12 +218,21 @@ fn i2c_task<'d, M: I2c>(
     let config = I2cSlaveConfig::new()
         .rx_buffer_length(SLAVE_BUFFER_SIZE)
         .tx_buffer_length(SLAVE_BUFFER_SIZE);
-    let mut driver = I2cSlaveDriver::new(i2c, sda, scl, 0x34, &config)?;
+    let mut driver = I2cSlaveDriver::new(i2c, sda, scl, SLAVE_ADDR, &config)?;
+
+    let d = Test {
+        wat: 10,
+        version: 1.234,
+    };
+
+    let mut tx_buf: [u8; 32] = [0; 32];
+    bincode::encode_into_slice(&d, &mut tx_buf, bincode::config::standard()).unwrap();
 
     loop {
         let mut rx_buf: [u8; 8] = [0; 8];
         match driver.read(&mut rx_buf, BLOCK) {
             Ok(_) => {
+                driver.write(&tx_buf, BLOCK).unwrap();
                 println!("Slave receives {:?}", rx_buf);
             }
             Err(e) => {
@@ -222,12 +240,7 @@ fn i2c_task<'d, M: I2c>(
             }
         }
     }
-
-    Ok(())
 }
-
-const SLAVE_ADDR: u8 = 0x22;
-const SLAVE_BUFFER_SIZE: usize = 128;
 
 #[derive(PartialEq, Eq, Hash, Debug, Copy, Clone)]
 enum Button {
@@ -277,7 +290,7 @@ fn main() -> anyhow::Result<()> {
             i2c_task(
                 peripherals.i2c0,
                 peripherals.pins.gpio4.downgrade(),
-                peripherals.pins.gpio5.downgrade(),
+                peripherals.pins.gpio16.downgrade(),
             )
         });
     });

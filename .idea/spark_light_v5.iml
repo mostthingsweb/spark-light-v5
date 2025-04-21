@@ -5,9 +5,11 @@
       <sourceFolder url="file://$MODULE_DIR$/light/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/remote/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/remote-v2/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/light/target" />
       <excludeFolder url="file://$MODULE_DIR$/remote/target" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
+      <excludeFolder url="file://$MODULE_DIR$/remote-v2/target" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
