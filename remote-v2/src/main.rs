@@ -1,7 +1,8 @@
-use std::{num::NonZero, time::Duration};
+use std::{num::NonZero, sync::mpsc::{self, Receiver, Sender}, time::Duration};
 
 use async_button::{Button, ButtonConfig, ButtonEvent};
 use embassy_executor::Executor;
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 use esp_idf_svc::hal::{
     cpu::{self, core},
     delay::BLOCK,
@@ -15,7 +16,7 @@ use static_cell::StaticCell;
 
 static EXECUTOR: StaticCell<Executor> = StaticCell::new();
 
-fn run() {
+fn run(sender: Sender<u32>) {
     println!("Starting control_led() on core {:?}", core());
 
     let peripherals = Peripherals::take().unwrap();
@@ -25,10 +26,10 @@ fn run() {
     let mut button2 = PinDriver::input(peripherals.pins.gpio14).unwrap();
     let mut button3 = PinDriver::input(peripherals.pins.gpio35).unwrap();
 
-    button0.set_interrupt_type(InterruptType::NegEdge).unwrap();
-    button1.set_interrupt_type(InterruptType::NegEdge).unwrap();
-    button2.set_interrupt_type(InterruptType::NegEdge).unwrap();
-    button3.set_interrupt_type(InterruptType::NegEdge).unwrap();
+    button0.set_interrupt_type(InterruptType::AnyEdge).unwrap();
+    button1.set_interrupt_type(InterruptType::AnyEdge).unwrap();
+    button2.set_interrupt_type(InterruptType::AnyEdge).unwrap();
+    button3.set_interrupt_type(InterruptType::AnyEdge).unwrap();
 
     loop {
         // prepare communication channel
@@ -52,13 +53,13 @@ fn run() {
                 })
                 .unwrap();
 
-                button2
+            button2
                 .subscribe_nonstatic(move || {
                     waker3.notify(NonZero::new(4).unwrap());
                 })
                 .unwrap();
 
-                button3
+            button3
                 .subscribe_nonstatic(move || {
                     waker4.notify(NonZero::new(8).unwrap());
                 })
@@ -67,64 +68,45 @@ fn run() {
 
         // enable interrupt, will be automatically disabled after being triggered
         button0.enable_interrupt().unwrap();
-        button1.enable_interrupt().unwrap();        
+        button1.enable_interrupt().unwrap();
         button2.enable_interrupt().unwrap();
         button3.enable_interrupt().unwrap();
 
         // block until notified
-
         loop {
             if let Some(a) = notification.wait(BLOCK) {
-                println!("got: {:?}", a);
+                println!();
+                let a: u32 = a.into();
+                if a & 1 != 0 {
+                    println!("button0: {}", bool::from(button0.get_level()));
+                }
+
+                if a & 2 != 0 {
+                    println!("button1: {}", bool::from(button1.get_level()));
+                }
+
+                if a & 4 != 0 {
+                    println!("button2: {}", bool::from(button2.get_level()));
+                }
+
+                if a & 8 != 0 {
+                    println!("button3: {}", bool::from(button2.get_level()));
+                }
+
+                sender.send(a).unwrap();
                 break;
             }
         }
     }
-
-    // let mut async_button = Button::new(
-    //     PinDriver::input(peripherals.pins.gpio21).unwrap(),
-    //     ButtonConfig::default(),
-    // );
-    // let mut async_button2 = Button::new(
-    //     PinDriver::input(peripherals.pins.gpio0).unwrap(),
-    //     ButtonConfig::default(),
-    // );
-    // let mut async_button3 = Button::new(
-    //     PinDriver::input(peripherals.pins.gpio14).unwrap(),
-    //     ButtonConfig::default(),
-    // );
-    // let mut async_button4 = Button::new(
-    //     PinDriver::input(peripherals.pins.gpio35).unwrap(),
-    //     ButtonConfig::default(),
-    // );
-
-    // loop {
-    //     let event1 = async_button.update();
-    //     let event2 = async_button2.update();
-    //     let event3 = async_button3.update();
-    //     let event4 = async_button4.update();
-
-    //     match embassy_futures::select::select4(event1, event2, event3, event4).await {
-    //         embassy_futures::select::Either4::First(e) => {
-    //             println!("button1: {:?}", e);
-    //         }
-    //         embassy_futures::select::Either4::Second(e) => {
-    //             println!("button2: {:?}", e);
-    //         }
-    //         embassy_futures::select::Either4::Third(e) => {
-    //             println!("button3: {:?}", e);
-    //         }
-    //         embassy_futures::select::Either4::Fourth(e) => {
-    //             println!("button4: {:?}", e);
-    //         }
-    //     }
-    // }
 }
 
-fn i2c_loop() {
+fn i2c_loop(receiver: Receiver<u32>) {
     loop {
-        std::thread::sleep(Duration::from_secs(2));
-        println!("s");
+        if let Ok(b) = receiver.recv_timeout(Duration::from_secs(1)) {
+            println!("s: {}", b);
+        } else {
+            println!("timeout");
+        }
     }
     // let mut rx_buf: [u8; 8] = [0; 8];
     // let config = I2cSlaveConfig::new()
@@ -136,6 +118,8 @@ fn i2c_loop() {
 const SLAVE_ADDR: u8 = 0x22;
 const SLAVE_BUFFER_SIZE: usize = 128;
 
+static SHARED: Channel::<CriticalSectionRawMutex, u32, 3> = Channel::new();
+
 fn main() -> anyhow::Result<()> {
     // It is necessary to call this function once. Otherwise some patches to the runtime
     // implemented by esp-idf-sys might not link properly. See https://github.com/esp-rs/esp-idf-template/issues/71
@@ -144,20 +128,32 @@ fn main() -> anyhow::Result<()> {
     // Bind the log crate to the ESP Logging facilities
     esp_idf_svc::log::EspLogger::initialize_default();
 
-    let thread0 = std::thread::Builder::new()
-        .stack_size(7000)
-        .spawn(move || {
-            run();
-        })?;
+    let (tx, rx) = mpsc::channel::<u32>();
 
-    let thread1 = std::thread::Builder::new()
-        .stack_size(7000)
-        .spawn(move || {
-            i2c_loop();
-        })?;
+    std::thread::scope(|s| { 
+        s.spawn(|| { 
+            run(tx);
+        });
+        s.spawn(|| { 
+            i2c_loop(rx); 
+        });
+    });
 
-    thread0.join().unwrap();
-    thread1.join().unwrap();
+    // let thread0 = std::thread::Builder::new()
+    //     .stack_size(7000)
+    //     .spawn(move || {
+    //         run(sender);
+    //     })?;
+
+    // let mut recv = SHARED.receiver();
+    // let thread1 = std::thread::Builder::new()
+    //     .stack_size(7000)
+    //     .spawn(move || {
+    //         i2c_loop(recv);
+    //     })?;
+
+    // thread0.join().unwrap();
+    // thread1.join().unwrap();
 
     Ok(())
 }
