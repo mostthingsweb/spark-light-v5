@@ -5,52 +5,102 @@ use std::{
     time::Duration,
 };
 
-use esp_idf_svc::hal::{
-    cpu::core,
-    delay::BLOCK,
-    gpio::{AnyIOPin, AnyInputPin, IOPin, InputPin, InterruptType, Pin, PinDriver},
-    prelude::Peripherals,
-    task::notification::Notification,
-};
+use esp_idf_svc::{hal::{
+    cpu::core, delay::BLOCK, gpio::{AnyIOPin, AnyInputPin, IOPin, Input, InputPin, InterruptType, Level, Pin, PinDriver}, peripheral::Peripheral, prelude::Peripherals, task::notification::Notification, timer::{self, Timer, TimerDriver}
+}, timer::EspTimerService};
 
-fn run(sender: Sender<u32>, buttons: Vec<AnyInputPin>) {
+struct ButtonControlBlock<'a> {
+    pin_driver: PinDriver<'a, AnyInputPin, Input>,
+    last_state: Level,
+    last_state_change: Duration,
+}
+
+fn bits_set(n: usize) -> u32 {
+    if n == 0 {
+        0
+    } else {
+        u32::MAX >> (32 - n)
+    }
+}
+
+fn run<'d, TIMER: Timer>(sender: Sender<u32>, buttons: Vec<AnyInputPin>, mut timer_instance: impl Peripheral<P = TIMER> + 'd,) {
     println!("Starting control_led() on core {:?}", core());
 
-    let mut buttons: HashMap<_, _> = buttons
+    let timer_service = EspTimerService::new().unwrap();
+
+    let mut buttons: HashMap<_, ButtonControlBlock> = buttons
         .into_iter()
         .enumerate()
-        .map(|(i, pin)| (i, PinDriver::input(pin).unwrap()))
+        .map(|(i, pin)| {
+            let pin_driver = PinDriver::input(pin).unwrap();
+            let level = pin_driver.get_level();
+            (
+                i,
+                ButtonControlBlock {
+                    pin_driver,
+                    last_state: level,
+                    last_state_change: timer_service.now(),
+                },
+            )
+        })
         .collect();
 
     for button in buttons.values_mut() {
-        button.set_interrupt_type(InterruptType::AnyEdge).unwrap();
+        button
+            .pin_driver
+            .set_interrupt_type(InterruptType::AnyEdge)
+            .unwrap();
     }
 
+    let notification = Notification::new();
+
+    let waker = notification.notifier();
+    let bit = bits_set(buttons.len());
+    let timer = timer_service.timer(move || { 
+        unsafe {
+            waker.notify(NonZero::new(bit).unwrap());
+        }
+    }).unwrap();
+
+    timer.every(Duration::from_millis(100)).unwrap();
+
     loop {
-        let notification = Notification::new();
-        
         for (i, button) in buttons.iter_mut() {
             let waker = notification.notifier();
             let bit = 1 << i;
 
             unsafe {
-                button.subscribe(move || { 
-                    waker.notify(NonZero::new(bit).unwrap());
-                });
+                button
+                    .pin_driver
+                    .subscribe(move || {
+                        waker.notify(NonZero::new(bit).unwrap());
+                    })
+                    .unwrap();
             }
 
-            button.enable_interrupt().unwrap();
+            button.pin_driver.enable_interrupt().unwrap();
         }
 
         // block until notified
         loop {
             if let Some(notification_value) = notification.wait(BLOCK) {
                 let notification_value: u32 = notification_value.into();
+                //println!("{:?}", timer_service.now());
 
-                for (i, button) in &buttons {
+                for (i, button) in buttons.iter_mut() {
                     if notification_value & (1 << i) != 0 {
-                        println!("button{}: {}", i, bool::from(button.get_level()));
-                        sender.send(*i as u32).unwrap();
+                        let new_level = button.pin_driver.get_level();
+                        if new_level != button.last_state {
+                            println!("\tbutton{}: {}", i, bool::from(new_level));
+                            // TODO: Send the pin #
+                            sender.send(*i as u32).unwrap();
+                            button.last_state = new_level;
+                        } else if button.last_state == Level::Low {
+                            let elapsed = timer_service.now();
+                            if elapsed - button.last_state_change > Duration::from_millis(500) {
+                                println!("\tbutton{}: LONG PRESS?", i);
+                            }
+                        }          
                     }
                 }
 
@@ -99,7 +149,7 @@ fn main() -> anyhow::Result<()> {
 
     std::thread::scope(|s| {
         s.spawn(|| {
-            run(tx, buttons);
+            run(tx, buttons, peripherals.timer00);
         });
 
         s.spawn(|| {
