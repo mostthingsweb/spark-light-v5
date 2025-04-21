@@ -6,15 +6,16 @@ use std::{
 };
 
 use esp_idf_svc::{
-    hal::{
+    espnow::EspNow, eventloop::EspSystemEventLoop, hal::{
         delay::BLOCK,
-        gpio::{AnyInputPin, Input, InputPin, InterruptType, Level, PinDriver},
+        gpio::{AnyIOPin, AnyInputPin, IOPin, Input, InputPin, InterruptType, Level, PinDriver},
+        i2c::{I2c, I2cSlaveConfig, I2cSlaveDriver},
+        modem::{Modem, WifiModemPeripheral},
         peripheral::Peripheral,
         prelude::Peripherals,
-        task::{self, notification::Notification},
+        task::{self, notification::Notification, yield_now},
         timer::Timer,
-    },
-    timer::EspTimerService,
+    }, nvs::EspDefaultNvsPartition, sys::{sleep, DR_REG_GPIO_BASE}, timer::EspTimerService, wifi::{BlockingWifi, EspWifi}
 };
 
 struct ButtonControlBlock<'a> {
@@ -133,7 +134,7 @@ fn monitor_buttons_task<'d, TIMER: Timer>(
     }
 }
 
-fn button_sequence_debounce_task(receiver: Receiver<Button>) {
+fn button_sequence_debounce_task(receiver: Receiver<Button>, sender: Sender<Vec<Button>>) {
     println!(
         "Starting button_sequence_debounce_task(), task {:?}",
         task::current().unwrap()
@@ -169,16 +170,60 @@ fn button_sequence_debounce_task(receiver: Receiver<Button>) {
 
         if should_send {
             println!("{:?}", button_sequence);
-            button_sequence.clear();
+            sender.send(button_sequence).unwrap();
+            button_sequence = vec![];
             last_button_press = None;
         }
     }
-    
-    // let mut rx_buf: [u8; 8] = [0; 8];
-    // let config = I2cSlaveConfig::new()
-    //     .rx_buffer_length(SLAVE_BUFFER_SIZE)
-    //     .tx_buffer_length(SLAVE_BUFFER_SIZE);
-    // let driver = I2cSlaveDriver::new(Peripherals::, sda, scl, slave_addr, &config)?;
+}
+
+fn esp_now_task<'d, MODEM: WifiModemPeripheral>(
+    receiver: Receiver<Vec<Button>>,
+    modem: impl Peripheral<P = MODEM> + 'd,
+) -> anyhow::Result<()> {
+    println!(
+        "Starting esp_now_task(), task {:?}",
+        task::current().unwrap()
+    );
+
+    let sys_loop = EspSystemEventLoop::take()?;
+    let nvs = EspDefaultNvsPartition::take()?;
+
+    let mut wifi = BlockingWifi::wrap(EspWifi::new(modem, sys_loop.clone(), Some(nvs))?, sys_loop)?;
+
+    let espnow: EspNow<'_> = EspNow::take().unwrap();
+
+    loop {
+       let ret = receiver.recv_timeout(Duration::from_secs(10));
+    }
+
+    Ok(())
+}
+
+fn i2c_task<'d, M: I2c>(
+    i2c: impl Peripheral<P = M> + 'd,
+    sda: AnyIOPin,
+    scl: AnyIOPin,
+) -> anyhow::Result<()> {
+    let mut rx_buf: [u8; 8] = [0; 8];
+    let config = I2cSlaveConfig::new()
+        .rx_buffer_length(SLAVE_BUFFER_SIZE)
+        .tx_buffer_length(SLAVE_BUFFER_SIZE);
+    let mut driver = I2cSlaveDriver::new(i2c, sda, scl, 0x34, &config)?;
+
+    loop {
+        let mut rx_buf: [u8; 8] = [0; 8];
+        match driver.read(&mut rx_buf, BLOCK) {
+            Ok(_) => {
+                println!("Slave receives {:?}", rx_buf);
+            }
+            Err(e) => {
+                println!("Error: {:?}", e);
+            }
+        }
+    }
+
+    Ok(())
 }
 
 const SLAVE_ADDR: u8 = 0x22;
@@ -201,6 +246,7 @@ fn main() -> anyhow::Result<()> {
     esp_idf_svc::log::EspLogger::initialize_default();
 
     let (tx, rx) = mpsc::channel::<Button>();
+    let (tx_button_seq, rx_button_seq) = mpsc::channel::<Vec<Button>>();
 
     let peripherals = Peripherals::take().unwrap();
 
@@ -213,7 +259,6 @@ fn main() -> anyhow::Result<()> {
 
     std::thread::scope(|s| {
         std::thread::Builder::new()
-            .name("wat".to_string())
             .stack_size(7000)
             .spawn_scoped(s, || {
                 monitor_buttons_task(tx, buttons, peripherals.timer00);
@@ -221,7 +266,19 @@ fn main() -> anyhow::Result<()> {
             .unwrap();
 
         s.spawn(|| {
-            button_sequence_debounce_task(rx);
+            button_sequence_debounce_task(rx, tx_button_seq);
+        });
+
+        s.spawn(|| {
+            esp_now_task(rx_button_seq, peripherals.modem).unwrap();
+        });
+
+        s.spawn(|| {
+            i2c_task(
+                peripherals.i2c0,
+                peripherals.pins.gpio4.downgrade(),
+                peripherals.pins.gpio5.downgrade(),
+            )
         });
     });
 
