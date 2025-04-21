@@ -23,15 +23,16 @@ default = []
 experimental = ["esp-idf-svc/experimental"]
 
 [dependencies]
-anyhow = "1.0.98"
-bincode = "2"
+anyhow = "1"
+
 embedded-hal = "1.0.0"
 esp-idf-svc = { version = "0.51", features = ["embassy-time-driver", "embassy-sync"] }
+hex = "0.4.3"
 log = "0.4"
-maplit = "1.0.2"
-serde = "1.0.219"
+maplit = "1"
+postcard = "1"
 
-shared = { path = "../spark-messages" }
+spark_messages = { path = "../spark_messages" }
 
 [build-dependencies]
 embuild = "0.33"

@@ -24,7 +24,10 @@ use esp_idf_svc::{
     timer::EspTimerService,
     wifi::{BlockingWifi, EspWifi},
 };
-use shared::Test;
+use esp_idf_svc::sys::esp_base_mac_addr_get;
+use esp_idf_svc::wifi::WifiDeviceId;
+use postcard::to_slice;
+use spark_messages::Test;
 
 struct ButtonControlBlock<'a> {
     button: Button,
@@ -199,7 +202,13 @@ fn esp_now_task<'d, MODEM: WifiModemPeripheral>(
 
     let mut wifi = BlockingWifi::wrap(EspWifi::new(modem, sys_loop.clone(), Some(nvs))?, sys_loop)?;
 
-    let espnow: EspNow<'_> = EspNow::take().unwrap();
+    let mac = wifi.wifi().get_mac(WifiDeviceId::Sta)?;
+    println!("{:x?}", mac);
+
+    let mac = wifi.wifi().get_mac(WifiDeviceId::Ap)?;
+    println!("{:x?}", mac);
+
+    let espnow: EspNow<'_> = EspNow::take()?;
 
     loop {
         let ret = receiver.recv_timeout(Duration::from_secs(10));
@@ -226,7 +235,7 @@ fn i2c_task<'d, M: I2c>(
     };
 
     let mut tx_buf: [u8; 32] = [0; 32];
-    bincode::encode_into_slice(&d, &mut tx_buf, bincode::config::standard()).unwrap();
+    to_slice(&d, &mut tx_buf)?;
 
     loop {
         let mut rx_buf: [u8; 8] = [0; 8];
