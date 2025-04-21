@@ -5,26 +5,46 @@ use std::{
     time::Duration,
 };
 
-use esp_idf_svc::{hal::{
-    cpu::core, delay::BLOCK, gpio::{AnyIOPin, AnyInputPin, IOPin, Input, InputPin, InterruptType, Level, Pin, PinDriver}, peripheral::Peripheral, prelude::Peripherals, task::notification::Notification, timer::{self, Timer, TimerDriver}
-}, timer::EspTimerService};
+use esp_idf_svc::{
+    hal::{
+        cpu::core,
+        delay::BLOCK,
+        gpio::{
+            AnyIOPin, AnyInputPin, IOPin, Input, InputPin, InterruptType, Level, Pin, PinDriver,
+        },
+        peripheral::Peripheral,
+        prelude::Peripherals,
+        task::{self, notification::Notification},
+        timer::{self, Timer, TimerDriver},
+    },
+    timer::EspTimerService,
+};
 
 struct ButtonControlBlock<'a> {
     pin_driver: PinDriver<'a, AnyInputPin, Input>,
     last_state: Level,
+
+    #[allow(unused)]
     last_state_change: Duration,
 }
 
-fn bits_set(n: usize) -> u32 {
-    if n == 0 {
-        0
-    } else {
-        u32::MAX >> (32 - n)
-    }
-}
+// fn bits_set(n: usize) -> u32 {
+//     if n == 0 {
+//         0
+//     } else {
+//         u32::MAX >> (32 - n)
+//     }
+// }
 
-fn run<'d, TIMER: Timer>(sender: Sender<u32>, buttons: Vec<AnyInputPin>, mut timer_instance: impl Peripheral<P = TIMER> + 'd,) {
-    println!("Starting control_led() on core {:?}", core());
+fn monitor_buttons<'d, TIMER: Timer>(
+    sender: Sender<u32>,
+    buttons: Vec<AnyInputPin>,
+    #[allow(unused)] mut timer_instance: impl Peripheral<P = TIMER> + 'd,
+) {
+    println!(
+        "Starting monitor_buttons(), task {:?}",
+        task::current().unwrap()
+    );
 
     let timer_service = EspTimerService::new().unwrap();
 
@@ -54,15 +74,15 @@ fn run<'d, TIMER: Timer>(sender: Sender<u32>, buttons: Vec<AnyInputPin>, mut tim
 
     let notification = Notification::new();
 
-    let waker = notification.notifier();
-    let bit = bits_set(buttons.len());
-    let timer = timer_service.timer(move || { 
-        unsafe {
-            waker.notify(NonZero::new(bit).unwrap());
-        }
-    }).unwrap();
+    // let waker = notification.notifier();
+    // let bit = bits_set(buttons.len());
+    // let timer = timer_service.timer(move || {
+    //     unsafe {
+    //         waker.notify(NonZero::new(bit).unwrap());
+    //     }
+    // }).unwrap();
 
-    timer.every(Duration::from_millis(100)).unwrap();
+    // timer.every(Duration::from_millis(100)).unwrap();
 
     loop {
         for (i, button) in buttons.iter_mut() {
@@ -92,18 +112,22 @@ fn run<'d, TIMER: Timer>(sender: Sender<u32>, buttons: Vec<AnyInputPin>, mut tim
                         let new_level = button.pin_driver.get_level();
                         if new_level != button.last_state {
                             println!("\tbutton{}: {}", i, bool::from(new_level));
-                            // TODO: Send the pin #
-                            sender.send(*i as u32).unwrap();
                             button.last_state = new_level;
-                        } else if button.last_state == Level::Low {
-                            let elapsed = timer_service.now();
-                            if elapsed - button.last_state_change > Duration::from_millis(500) {
-                                println!("\tbutton{}: LONG PRESS?", i);
+
+                            if new_level == Level::Low {
+                                sender.send(button.pin_driver.pin() as u32).unwrap();
                             }
-                        }          
+                        }
+                        // else if button.last_state == Level::Low {
+                        //     let elapsed = timer_service.now();
+                        //     if elapsed - button.last_state_change > Duration::from_millis(500) {
+                        //         println!("\tbutton{}: LONG PRESS?", i);
+                        //     }
+                        // }
                     }
                 }
 
+                // Break out of loop so we can re-arm interrupts
                 break;
             }
         }
@@ -149,7 +173,7 @@ fn main() -> anyhow::Result<()> {
 
     std::thread::scope(|s| {
         s.spawn(|| {
-            run(tx, buttons, peripherals.timer00);
+            monitor_buttons(tx, buttons, peripherals.timer00);
         });
 
         s.spawn(|| {
