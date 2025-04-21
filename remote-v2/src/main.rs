@@ -22,15 +22,21 @@ fn run() {
 
     let mut button0 = PinDriver::input(peripherals.pins.gpio21).unwrap();
     let mut button1 = PinDriver::input(peripherals.pins.gpio0).unwrap();
+    let mut button2 = PinDriver::input(peripherals.pins.gpio14).unwrap();
+    let mut button3 = PinDriver::input(peripherals.pins.gpio35).unwrap();
 
     button0.set_interrupt_type(InterruptType::NegEdge).unwrap();
     button1.set_interrupt_type(InterruptType::NegEdge).unwrap();
+    button2.set_interrupt_type(InterruptType::NegEdge).unwrap();
+    button3.set_interrupt_type(InterruptType::NegEdge).unwrap();
 
     loop {
         // prepare communication channel
         let notification = Notification::new();
         let waker = notification.notifier();
         let waker2 = notification.notifier();
+        let waker3 = notification.notifier();
+        let waker4 = notification.notifier();
 
         // register interrupt callback, here it's a closure on stack
         unsafe {
@@ -45,11 +51,26 @@ fn run() {
                     waker2.notify(NonZero::new(2).unwrap());
                 })
                 .unwrap();
+
+                button2
+                .subscribe_nonstatic(move || {
+                    waker3.notify(NonZero::new(4).unwrap());
+                })
+                .unwrap();
+
+                button3
+                .subscribe_nonstatic(move || {
+                    waker4.notify(NonZero::new(8).unwrap());
+                })
+                .unwrap();
         }
 
         // enable interrupt, will be automatically disabled after being triggered
         button0.enable_interrupt().unwrap();
-        button1.enable_interrupt().unwrap();
+        button1.enable_interrupt().unwrap();        
+        button2.enable_interrupt().unwrap();
+        button3.enable_interrupt().unwrap();
+
         // block until notified
 
         loop {
