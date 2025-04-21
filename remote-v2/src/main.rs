@@ -8,7 +8,6 @@ use esp_idf_svc::hal::{
     prelude::Peripherals,
     task::notification::Notification,
 };
-use futures_util::{select, FutureExt};
 
 fn run(sender: Sender<u32>) {
     println!("Starting control_led() on core {:?}", core());
@@ -128,26 +127,11 @@ fn main() -> anyhow::Result<()> {
         s.spawn(|| { 
             run(tx);
         });
+
         s.spawn(|| { 
             i2c_loop(rx); 
         });
     });
-
-    // let thread0 = std::thread::Builder::new()
-    //     .stack_size(7000)
-    //     .spawn(move || {
-    //         run(sender);
-    //     })?;
-
-    // let mut recv = SHARED.receiver();
-    // let thread1 = std::thread::Builder::new()
-    //     .stack_size(7000)
-    //     .spawn(move || {
-    //         i2c_loop(recv);
-    //     })?;
-
-    // thread0.join().unwrap();
-    // thread1.join().unwrap();
 
     Ok(())
 }
