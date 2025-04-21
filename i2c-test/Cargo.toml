@@ -29,7 +29,7 @@ anyhow = "1.0.98"
 bincode = "2"
 serde = "1.0.219"
 
-shared = { path = "../shared" }
+shared = { path = "../spark-messages" }
 
 [build-dependencies]
 embuild = "0.33"

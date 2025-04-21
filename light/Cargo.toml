@@ -53,7 +53,7 @@ static_cell = { version = "2.1.0", features = ["nightly"] }
 
 esp-hal-smartled = { git = "https://github.com/hydrogenoxide/esp-hal-community.git", branch = "esp-hal-0.23" }
 smart-leds = "0.4.0"
-shared = { version = "0.1.0", path = "../shared" }
+shared = { version = "0.1.0", path = "../spark-messages" }
 
 [profile.dev]
 # Rust debug is too slow.
