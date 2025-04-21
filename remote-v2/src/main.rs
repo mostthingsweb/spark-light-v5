@@ -7,20 +7,18 @@ use std::{
 
 use esp_idf_svc::{
     hal::{
-        cpu::core,
         delay::BLOCK,
-        gpio::{
-            AnyIOPin, AnyInputPin, IOPin, Input, InputPin, InterruptType, Level, Pin, PinDriver,
-        },
+        gpio::{AnyInputPin, Input, InputPin, InterruptType, Level, PinDriver},
         peripheral::Peripheral,
         prelude::Peripherals,
         task::{self, notification::Notification},
-        timer::{self, Timer, TimerDriver},
+        timer::Timer,
     },
     timer::EspTimerService,
 };
 
 struct ButtonControlBlock<'a> {
+    button: Button,
     pin_driver: PinDriver<'a, AnyInputPin, Input>,
     last_state: Level,
 
@@ -36,13 +34,13 @@ struct ButtonControlBlock<'a> {
 //     }
 // }
 
-fn monitor_buttons<'d, TIMER: Timer>(
-    sender: Sender<u32>,
-    buttons: Vec<AnyInputPin>,
+fn monitor_buttons_task<'d, TIMER: Timer>(
+    sender: Sender<Button>,
+    buttons: HashMap<Button, AnyInputPin>,
     #[allow(unused)] mut timer_instance: impl Peripheral<P = TIMER> + 'd,
 ) {
     println!(
-        "Starting monitor_buttons(), task {:?}",
+        "Starting monitor_buttons_task(), task {:?}",
         task::current().unwrap()
     );
 
@@ -51,12 +49,13 @@ fn monitor_buttons<'d, TIMER: Timer>(
     let mut buttons: HashMap<_, ButtonControlBlock> = buttons
         .into_iter()
         .enumerate()
-        .map(|(i, pin)| {
+        .map(|(i, (button, pin))| {
             let pin_driver = PinDriver::input(pin).unwrap();
             let level = pin_driver.get_level();
             (
                 i,
                 ButtonControlBlock {
+                    button,
                     pin_driver,
                     last_state: level,
                     last_state_change: timer_service.now(),
@@ -115,7 +114,7 @@ fn monitor_buttons<'d, TIMER: Timer>(
                             button.last_state = new_level;
 
                             if new_level == Level::Low {
-                                sender.send(button.pin_driver.pin() as u32).unwrap();
+                                sender.send(button.button).unwrap();
                             }
                         }
                         // else if button.last_state == Level::Low {
@@ -134,10 +133,12 @@ fn monitor_buttons<'d, TIMER: Timer>(
     }
 }
 
-fn i2c_loop(receiver: Receiver<u32>) {
+fn button_sequence_debounce_task() {}
+
+fn i2c_loop(receiver: Receiver<Button>) {
     loop {
         if let Ok(b) = receiver.recv_timeout(Duration::from_secs(1)) {
-            println!("s: {}", b);
+            println!("s: {:?}", b);
         } else {
             println!("timeout");
         }
@@ -152,6 +153,14 @@ fn i2c_loop(receiver: Receiver<u32>) {
 const SLAVE_ADDR: u8 = 0x22;
 const SLAVE_BUFFER_SIZE: usize = 128;
 
+#[derive(PartialEq, Eq, Hash, Debug, Copy, Clone)]
+enum Button {
+    Button0,
+    Button1,
+    Button2,
+    Button3,
+}
+
 fn main() -> anyhow::Result<()> {
     // It is necessary to call this function once. Otherwise some patches to the runtime
     // implemented by esp-idf-sys might not link properly. See https://github.com/esp-rs/esp-idf-template/issues/71
@@ -160,21 +169,25 @@ fn main() -> anyhow::Result<()> {
     // Bind the log crate to the ESP Logging facilities
     esp_idf_svc::log::EspLogger::initialize_default();
 
-    let (tx, rx) = mpsc::channel::<u32>();
+    let (tx, rx) = mpsc::channel::<Button>();
 
     let peripherals = Peripherals::take().unwrap();
 
-    let buttons = vec![
-        peripherals.pins.gpio21.downgrade_input(),
-        peripherals.pins.gpio0.downgrade_input(),
-        peripherals.pins.gpio14.downgrade_input(),
-        peripherals.pins.gpio35.downgrade_input(),
-    ];
+    let buttons = maplit::hashmap! {
+        Button::Button0 => peripherals.pins.gpio21.downgrade_input(),
+        Button::Button1 => peripherals.pins.gpio0.downgrade_input(),
+        Button::Button2 => peripherals.pins.gpio14.downgrade_input(),
+        Button::Button3 => peripherals.pins.gpio35.downgrade_input(),
+    };
 
     std::thread::scope(|s| {
-        s.spawn(|| {
-            monitor_buttons(tx, buttons, peripherals.timer00);
-        });
+        std::thread::Builder::new()
+            .name("wat".to_string())
+            .stack_size(7000)
+            .spawn_scoped(s, || {
+                monitor_buttons_task(tx, buttons, peripherals.timer00);
+            })
+            .unwrap();
 
         s.spawn(|| {
             i2c_loop(rx);
