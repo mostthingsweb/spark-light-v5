@@ -110,7 +110,7 @@ fn monitor_buttons_task<'d, TIMER: Timer>(
                     if notification_value & (1 << i) != 0 {
                         let new_level = button.pin_driver.get_level();
                         if new_level != button.last_state {
-                            println!("\tbutton{}: {}", i, bool::from(new_level));
+                            //println!("\tbutton{}: {}", i, bool::from(new_level));
                             button.last_state = new_level;
 
                             if new_level == Level::Low {
@@ -133,16 +133,47 @@ fn monitor_buttons_task<'d, TIMER: Timer>(
     }
 }
 
-fn button_sequence_debounce_task() {}
+fn button_sequence_debounce_task(receiver: Receiver<Button>) {
+    println!(
+        "Starting button_sequence_debounce_task(), task {:?}",
+        task::current().unwrap()
+    );
 
-fn i2c_loop(receiver: Receiver<Button>) {
+    let timer_service = EspTimerService::new().unwrap();
+    let mut button_sequence: Vec<Button> = Vec::with_capacity(5);
+    let mut last_button_press: Option<Duration> = None;
     loop {
-        if let Ok(b) = receiver.recv_timeout(Duration::from_secs(1)) {
-            println!("s: {:?}", b);
-        } else {
-            println!("timeout");
+        let mut got_button = false;
+        if let Ok(b) = receiver.recv_timeout(Duration::from_millis(100)) {
+            button_sequence.push(b);
+            got_button = true;
+        }
+
+        let now = timer_service.now();
+
+        // Send no matter what if 5 or more buttons are queued up
+        let mut should_send = button_sequence.len() >= 5;
+
+        // Send if 2 seconds since last press has elapsed
+        if !button_sequence.is_empty() {
+            if let Some(last_button_press) = &last_button_press {
+                if now - *last_button_press >= Duration::from_millis(700) {
+                    should_send = true;
+                }
+            }
+        }
+
+        if got_button {
+            last_button_press = Some(now);
+        }
+
+        if should_send {
+            println!("{:?}", button_sequence);
+            button_sequence.clear();
+            last_button_press = None;
         }
     }
+    
     // let mut rx_buf: [u8; 8] = [0; 8];
     // let config = I2cSlaveConfig::new()
     //     .rx_buffer_length(SLAVE_BUFFER_SIZE)
@@ -190,7 +221,7 @@ fn main() -> anyhow::Result<()> {
             .unwrap();
 
         s.spawn(|| {
-            i2c_loop(rx);
+            button_sequence_debounce_task(rx);
         });
     });
 
