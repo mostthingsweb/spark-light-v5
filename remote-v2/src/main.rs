@@ -1,20 +1,14 @@
 use std::{num::NonZero, sync::mpsc::{self, Receiver, Sender}, time::Duration};
 
-use async_button::{Button, ButtonConfig, ButtonEvent};
-use embassy_executor::Executor;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 use esp_idf_svc::hal::{
-    cpu::{self, core},
+    cpu::core,
     delay::BLOCK,
     gpio::{InterruptType, PinDriver},
-    i2c::I2cSlaveConfig,
     prelude::Peripherals,
-    task::{block_on, notification::Notification},
+    task::notification::Notification,
 };
 use futures_util::{select, FutureExt};
-use static_cell::StaticCell;
-
-static EXECUTOR: StaticCell<Executor> = StaticCell::new();
 
 fn run(sender: Sender<u32>) {
     println!("Starting control_led() on core {:?}", core());
@@ -90,7 +84,7 @@ fn run(sender: Sender<u32>) {
                 }
 
                 if a & 8 != 0 {
-                    println!("button3: {}", bool::from(button2.get_level()));
+                    println!("button3: {}", bool::from(button3.get_level()));
                 }
 
                 sender.send(a).unwrap();
