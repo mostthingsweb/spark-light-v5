@@ -1,92 +1,59 @@
-use std::{num::NonZero, sync::mpsc::{self, Receiver, Sender}, time::Duration};
+use std::{
+    collections::HashMap,
+    num::NonZero,
+    sync::mpsc::{self, Receiver, Sender},
+    time::Duration,
+};
 
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 use esp_idf_svc::hal::{
     cpu::core,
     delay::BLOCK,
-    gpio::{InterruptType, PinDriver},
+    gpio::{AnyIOPin, AnyInputPin, IOPin, InputPin, InterruptType, Pin, PinDriver},
     prelude::Peripherals,
     task::notification::Notification,
 };
 
-fn run(sender: Sender<u32>) {
+fn run(sender: Sender<u32>, buttons: Vec<AnyInputPin>) {
     println!("Starting control_led() on core {:?}", core());
 
-    let peripherals = Peripherals::take().unwrap();
+    let mut buttons: HashMap<_, _> = buttons
+        .into_iter()
+        .enumerate()
+        .map(|(i, pin)| (i, PinDriver::input(pin).unwrap()))
+        .collect();
 
-    let mut button0 = PinDriver::input(peripherals.pins.gpio21).unwrap();
-    let mut button1 = PinDriver::input(peripherals.pins.gpio0).unwrap();
-    let mut button2 = PinDriver::input(peripherals.pins.gpio14).unwrap();
-    let mut button3 = PinDriver::input(peripherals.pins.gpio35).unwrap();
-
-    button0.set_interrupt_type(InterruptType::AnyEdge).unwrap();
-    button1.set_interrupt_type(InterruptType::AnyEdge).unwrap();
-    button2.set_interrupt_type(InterruptType::AnyEdge).unwrap();
-    button3.set_interrupt_type(InterruptType::AnyEdge).unwrap();
+    for button in buttons.values_mut() {
+        button.set_interrupt_type(InterruptType::AnyEdge).unwrap();
+    }
 
     loop {
-        // prepare communication channel
         let notification = Notification::new();
-        let waker = notification.notifier();
-        let waker2 = notification.notifier();
-        let waker3 = notification.notifier();
-        let waker4 = notification.notifier();
+        
+        for (i, button) in buttons.iter_mut() {
+            let waker = notification.notifier();
+            let bit = 1 << i;
 
-        // register interrupt callback, here it's a closure on stack
-        unsafe {
-            button0
-                .subscribe_nonstatic(move || {
-                    waker.notify(NonZero::new(1).unwrap());
-                })
-                .unwrap();
+            unsafe {
+                button.subscribe(move || { 
+                    waker.notify(NonZero::new(bit).unwrap());
+                });
+            }
 
-            button1
-                .subscribe_nonstatic(move || {
-                    waker2.notify(NonZero::new(2).unwrap());
-                })
-                .unwrap();
-
-            button2
-                .subscribe_nonstatic(move || {
-                    waker3.notify(NonZero::new(4).unwrap());
-                })
-                .unwrap();
-
-            button3
-                .subscribe_nonstatic(move || {
-                    waker4.notify(NonZero::new(8).unwrap());
-                })
-                .unwrap();
+            button.enable_interrupt().unwrap();
         }
-
-        // enable interrupt, will be automatically disabled after being triggered
-        button0.enable_interrupt().unwrap();
-        button1.enable_interrupt().unwrap();
-        button2.enable_interrupt().unwrap();
-        button3.enable_interrupt().unwrap();
 
         // block until notified
         loop {
-            if let Some(a) = notification.wait(BLOCK) {
-                println!();
-                let a: u32 = a.into();
-                if a & 1 != 0 {
-                    println!("button0: {}", bool::from(button0.get_level()));
+            if let Some(notification_value) = notification.wait(BLOCK) {
+                let notification_value: u32 = notification_value.into();
+
+                for (i, button) in &buttons {
+                    if notification_value & (1 << i) != 0 {
+                        println!("button{}: {}", i, bool::from(button.get_level()));
+                        sender.send(*i as u32).unwrap();
+                    }
                 }
 
-                if a & 2 != 0 {
-                    println!("button1: {}", bool::from(button1.get_level()));
-                }
-
-                if a & 4 != 0 {
-                    println!("button2: {}", bool::from(button2.get_level()));
-                }
-
-                if a & 8 != 0 {
-                    println!("button3: {}", bool::from(button3.get_level()));
-                }
-
-                sender.send(a).unwrap();
                 break;
             }
         }
@@ -111,8 +78,6 @@ fn i2c_loop(receiver: Receiver<u32>) {
 const SLAVE_ADDR: u8 = 0x22;
 const SLAVE_BUFFER_SIZE: usize = 128;
 
-static SHARED: Channel::<CriticalSectionRawMutex, u32, 3> = Channel::new();
-
 fn main() -> anyhow::Result<()> {
     // It is necessary to call this function once. Otherwise some patches to the runtime
     // implemented by esp-idf-sys might not link properly. See https://github.com/esp-rs/esp-idf-template/issues/71
@@ -123,13 +88,22 @@ fn main() -> anyhow::Result<()> {
 
     let (tx, rx) = mpsc::channel::<u32>();
 
-    std::thread::scope(|s| { 
-        s.spawn(|| { 
-            run(tx);
+    let peripherals = Peripherals::take().unwrap();
+
+    let buttons = vec![
+        peripherals.pins.gpio21.downgrade_input(),
+        peripherals.pins.gpio0.downgrade_input(),
+        peripherals.pins.gpio14.downgrade_input(),
+        peripherals.pins.gpio35.downgrade_input(),
+    ];
+
+    std::thread::scope(|s| {
+        s.spawn(|| {
+            run(tx, buttons);
         });
 
-        s.spawn(|| { 
-            i2c_loop(rx); 
+        s.spawn(|| {
+            i2c_loop(rx);
         });
     });
 

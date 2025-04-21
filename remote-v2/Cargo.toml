@@ -23,11 +23,11 @@ default = []
 experimental = ["esp-idf-svc/experimental"]
 
 [dependencies]
-log = "0.4"
-esp-idf-svc = { version = "0.51", features = ["embassy-time-driver", "embassy-sync"] }
 anyhow = "1.0.98"
 embedded-hal = "1.0.0"
-embassy-sync = "0.6.2"
+esp-idf-svc = { version = "0.51", features = ["embassy-time-driver", "embassy-sync"] }
+log = "0.4"
+maplit = "1.0.2"
 
 [build-dependencies]
 embuild = "0.33"
