@@ -10,7 +10,7 @@ use esp_idf_svc::wifi::{BlockingWifi, ClientConfiguration, Configuration, EspWif
 use postcard::from_bytes;
 use std::thread::yield_now;
 use std::time::Duration;
-use spark_messages::Handshake;
+use spark_messages::{SparkI2cCommand, HandshakeCommandResponse, SparkI2cCommandKind};
 
 fn main() -> anyhow::Result<()> {
     // It is necessary to call this function once. Otherwise some patches to the runtime
@@ -34,16 +34,6 @@ fn main() -> anyhow::Result<()> {
                 )
                 .unwrap();
 
-                let tx_buf: [u8; 8] = [0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef];
-                let mut rx_buf: [u8; 32] = [0; 32];
-                driver.write(0x23, &tx_buf, BLOCK)?;
-                driver.read(0x23, &mut rx_buf, BLOCK)?;
-
-                println!("{:?}", &rx_buf);
-
-                let decoded: Handshake = from_bytes(&rx_buf)?;
-                dbg!(decoded);
-
                 let sys_loop = EspSystemEventLoop::take()?;
                 let nvs = EspDefaultNvsPartition::take()?;
 
@@ -55,8 +45,21 @@ fn main() -> anyhow::Result<()> {
                 let mac = wifi.wifi().get_mac(WifiDeviceId::Sta)?;
                 println!("{:x?}", mac);
 
-                let mac = wifi.wifi().get_mac(WifiDeviceId::Ap)?;
-                println!("{:x?}", mac);
+                let command = SparkI2cCommand {
+                    protocol_version: 0,
+                    kind: SparkI2cCommandKind::Handshake {
+                        light_mac: mac
+                    }
+                };
+
+                let mut tx_buf: [u8; 32] = [0; 32];
+                postcard::to_slice(&command, &mut tx_buf)?;
+                driver.write(0x23, &tx_buf, BLOCK)?;
+
+                let mut rx_buf: [u8; 32] = [0; 32];
+                driver.read(0x23, &mut rx_buf, BLOCK)?;
+                let decoded: HandshakeCommandResponse = from_bytes(&rx_buf)?;
+                dbg!(decoded);
 
                 let conf = Configuration::Client(ClientConfiguration::default());
                 wifi.set_configuration(&conf).unwrap();

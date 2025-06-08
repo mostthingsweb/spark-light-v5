@@ -1,15 +1,25 @@
 use serde::{Serialize, Deserialize};
 
-/// Remote (master) => light (slave)
+/// Light (master) => remote (slave)
 #[derive(Serialize, Deserialize, Debug)]
-pub struct Handshake {
-    pub remote_mac: [u8; 6],
+pub struct SparkI2cCommand {
+    pub protocol_version: u8,
+    pub kind: SparkI2cCommandKind,
 }
 
-/// Light (slave) => remote (master)
 #[derive(Serialize, Deserialize, Debug)]
-pub struct HandshakeResponse {
-    pub light_mac: [u8; 6],
+#[non_exhaustive]
+pub enum SparkI2cCommandKind {
+    Handshake {
+        light_mac: [u8; 6],
+    }
+}
+
+/// Remote (slave) => light (master)
+#[derive(Serialize, Deserialize, Debug)]
+pub struct HandshakeCommandResponse {
+    pub protocol_version: u8,
+    pub remote_mac: [u8; 6],
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Debug, Copy, Clone)]

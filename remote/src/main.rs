@@ -6,7 +6,12 @@ use std::{
 };
 
 use esp_idf_svc::espnow::{PeerInfo, BROADCAST};
-use esp_idf_svc::sys::{esp_base_mac_addr_get, esp_err_t, esp_now_peer_info_t, EspError, ESP_ERR_EFUSE, ESP_ERR_TIMEOUT};
+use esp_idf_svc::hal::delay::TickType;
+use esp_idf_svc::hal::task::thread::ThreadSpawnConfiguration;
+use esp_idf_svc::io::ErrorKind::TimedOut;
+use esp_idf_svc::sys::{
+    esp_base_mac_addr_get, esp_err_t, esp_now_peer_info_t, EspError, ESP_ERR_EFUSE, ESP_ERR_TIMEOUT,
+};
 use esp_idf_svc::wifi::{ClientConfiguration, Configuration, WifiDeviceId};
 use esp_idf_svc::{
     espnow::EspNow,
@@ -27,11 +32,10 @@ use esp_idf_svc::{
     timer::EspTimerService,
     wifi::{BlockingWifi, EspWifi},
 };
-use esp_idf_svc::hal::delay::TickType;
-use esp_idf_svc::hal::task::thread::ThreadSpawnConfiguration;
-use esp_idf_svc::io::ErrorKind::TimedOut;
 use postcard::to_slice;
-use spark_messages::{Button, ButtonSequence, Handshake};
+use spark_messages::{
+    Button, ButtonSequence, HandshakeCommandResponse, SparkI2cCommand, SparkI2cCommandKind,
+};
 
 struct ButtonControlBlock<'a> {
     button: Button,
@@ -151,7 +155,10 @@ fn monitor_buttons_task<'d, TIMER: Timer>(
     }
 }
 
-fn button_sequence_debounce_task(receiver: Receiver<Button>, sender: Sender<smallvec::SmallVec<[Button; 5]>>) {
+fn button_sequence_debounce_task(
+    receiver: Receiver<Button>,
+    sender: Sender<smallvec::SmallVec<[Button; 5]>>,
+) {
     println!(
         "Starting button_sequence_debounce_task(), task {:?}",
         task::current().unwrap()
@@ -198,7 +205,7 @@ fn button_sequence_debounce_task(receiver: Receiver<Button>, sender: Sender<smal
 
 fn esp_now_task<'d, MODEM: WifiModemPeripheral>(
     receiver: Receiver<smallvec::SmallVec<[Button; 5]>>,
-    s: Sender<[u8; 6]>,
+    mac_sender: Sender<[u8; 6]>,
     modem: impl Peripheral<P = MODEM> + 'd,
 ) -> anyhow::Result<()> {
     println!(
@@ -214,7 +221,7 @@ fn esp_now_task<'d, MODEM: WifiModemPeripheral>(
     let mac = wifi.wifi().get_mac(WifiDeviceId::Sta)?;
     println!("{:x?}", mac);
 
-    s.send(mac)?;
+    mac_sender.send(mac)?;
 
     let mac = wifi.wifi().get_mac(WifiDeviceId::Ap)?;
     println!("{:x?}", mac);
@@ -236,7 +243,7 @@ fn esp_now_task<'d, MODEM: WifiModemPeripheral>(
         let ret = receiver.recv_timeout(Duration::from_millis(10));
         if ret.is_ok() {
             let mut buf: [u8; 32] = [0; 32];
-            postcard::to_slice(&ButtonSequence { buttons: ret?}, &mut buf)?;
+            postcard::to_slice(&ButtonSequence { buttons: ret? }, &mut buf)?;
             println!("sending broadcast: {:?}", buf);
             espnow.send(BROADCAST, &buf)?;
         } else {
@@ -249,7 +256,7 @@ const SLAVE_ADDR: u8 = 0x23;
 const SLAVE_BUFFER_SIZE: usize = 128;
 
 fn i2c_task<'d, M: I2c>(
-    rx_mac: Receiver<[u8; 6]>,
+    mac_receiver: Receiver<[u8; 6]>,
     i2c: impl Peripheral<P = M> + 'd,
     sda: AnyIOPin,
     scl: AnyIOPin,
@@ -260,17 +267,19 @@ fn i2c_task<'d, M: I2c>(
         .tx_buffer_length(SLAVE_BUFFER_SIZE);
     let mut driver = I2cSlaveDriver::new(i2c, sda, scl, SLAVE_ADDR, &config)?;
 
+    // Wait for the esp task to start up and send us the MAC address to use
     let mac;
     loop {
-      if let Ok(b) = rx_mac.recv_timeout(Duration::from_millis(50)) {
-          mac = b;
-          break;
-      }
+        if let Ok(b) = mac_receiver.recv_timeout(Duration::from_millis(50)) {
+            mac = b;
+            break;
+        }
     }
 
     eprintln!("got the mac! {:?}", mac);
 
-    let handshake = Handshake {
+    let handshake = HandshakeCommandResponse {
+        protocol_version: 0,
         remote_mac: mac,
     };
 
@@ -279,15 +288,23 @@ fn i2c_task<'d, M: I2c>(
 
     loop {
         println!("WAITING FOR COMMAND");
-        let mut rx_buf: [u8; 8] = [0; 8];
+        let mut rx_buf: [u8; 32] = [0; 32];
         match driver.read(&mut rx_buf, TickType::new_millis(100).into()) {
             Ok(_) => {
-                driver.write(&tx_buf, TickType::new_millis(100).into())?;
                 println!("Slave receives {:?}", rx_buf);
+
+                let command: SparkI2cCommand = postcard::from_bytes(&rx_buf)?;
+                match command.kind {
+                    SparkI2cCommandKind::Handshake { light_mac } => {
+                        eprintln!("mac: {:?}", light_mac);
+                        driver.write(&tx_buf, TickType::new_millis(100).into())?;
+                    }
+                    _ => {}
+                }
             }
             Err(e) => {
                 if e.code() != ESP_ERR_TIMEOUT {
-                     println!("Error: {:?}", e);
+                    println!("Error: {:?}", e);
                 }
             }
         }
@@ -331,8 +348,9 @@ fn main() -> anyhow::Result<()> {
         std::thread::Builder::new()
             .stack_size(7000)
             .spawn_scoped(s, || {
-            esp_now_task(rx_button_seq, tx_mac, peripherals.modem).unwrap();
-        }).unwrap();
+                esp_now_task(rx_button_seq, tx_mac, peripherals.modem).unwrap();
+            })
+            .unwrap();
 
         s.spawn(|| {
             i2c_task(
