@@ -31,7 +31,7 @@ use esp_idf_svc::hal::delay::TickType;
 use esp_idf_svc::hal::task::thread::ThreadSpawnConfiguration;
 use esp_idf_svc::io::ErrorKind::TimedOut;
 use postcard::to_slice;
-use spark_messages::{Button, ButtonSequence, Test};
+use spark_messages::{Button, ButtonSequence, Handshake};
 
 struct ButtonControlBlock<'a> {
     button: Button,
@@ -198,6 +198,7 @@ fn button_sequence_debounce_task(receiver: Receiver<Button>, sender: Sender<smal
 
 fn esp_now_task<'d, MODEM: WifiModemPeripheral>(
     receiver: Receiver<smallvec::SmallVec<[Button; 5]>>,
+    s: Sender<[u8; 6]>,
     modem: impl Peripheral<P = MODEM> + 'd,
 ) -> anyhow::Result<()> {
     println!(
@@ -212,6 +213,8 @@ fn esp_now_task<'d, MODEM: WifiModemPeripheral>(
 
     let mac = wifi.wifi().get_mac(WifiDeviceId::Sta)?;
     println!("{:x?}", mac);
+
+    s.send(mac)?;
 
     let mac = wifi.wifi().get_mac(WifiDeviceId::Ap)?;
     println!("{:x?}", mac);
@@ -246,6 +249,7 @@ const SLAVE_ADDR: u8 = 0x23;
 const SLAVE_BUFFER_SIZE: usize = 128;
 
 fn i2c_task<'d, M: I2c>(
+    rx_mac: Receiver<[u8; 6]>,
     i2c: impl Peripheral<P = M> + 'd,
     sda: AnyIOPin,
     scl: AnyIOPin,
@@ -256,20 +260,29 @@ fn i2c_task<'d, M: I2c>(
         .tx_buffer_length(SLAVE_BUFFER_SIZE);
     let mut driver = I2cSlaveDriver::new(i2c, sda, scl, SLAVE_ADDR, &config)?;
 
-    let d = Test {
-        wat: 10,
-        version: 1.234,
+    let mac;
+    loop {
+      if let Ok(b) = rx_mac.recv_timeout(Duration::from_millis(50)) {
+          mac = b;
+          break;
+      }
+    }
+
+    eprintln!("got the mac! {:?}", mac);
+
+    let handshake = Handshake {
+        remote_mac: mac,
     };
 
     let mut tx_buf: [u8; 32] = [0; 32];
-    to_slice(&d, &mut tx_buf)?;
+    to_slice(&handshake, &mut tx_buf)?;
 
     loop {
         println!("WAITING FOR COMMAND");
         let mut rx_buf: [u8; 8] = [0; 8];
         match driver.read(&mut rx_buf, TickType::new_millis(100).into()) {
             Ok(_) => {
-                driver.write(&tx_buf, TickType::new_millis(100).into()).unwrap();
+                driver.write(&tx_buf, TickType::new_millis(100).into())?;
                 println!("Slave receives {:?}", rx_buf);
             }
             Err(e) => {
@@ -291,6 +304,8 @@ fn main() -> anyhow::Result<()> {
 
     let (tx, rx) = mpsc::channel::<Button>();
     let (tx_button_seq, rx_button_seq) = mpsc::channel::<smallvec::SmallVec<[Button; 5]>>();
+
+    let (tx_mac, rx_mac) = mpsc::channel::<[u8; 6]>();
 
     let peripherals = Peripherals::take()?;
 
@@ -316,11 +331,12 @@ fn main() -> anyhow::Result<()> {
         std::thread::Builder::new()
             .stack_size(7000)
             .spawn_scoped(s, || {
-            esp_now_task(rx_button_seq, peripherals.modem).unwrap();
+            esp_now_task(rx_button_seq, tx_mac, peripherals.modem).unwrap();
         }).unwrap();
 
         s.spawn(|| {
             i2c_task(
+                rx_mac,
                 peripherals.i2c0,
                 peripherals.pins.gpio4.downgrade(),
                 peripherals.pins.gpio16.downgrade(),

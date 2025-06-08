@@ -8,9 +8,9 @@ use esp_idf_svc::hal::units::Hertz;
 use esp_idf_svc::nvs::EspDefaultNvsPartition;
 use esp_idf_svc::wifi::{BlockingWifi, ClientConfiguration, Configuration, EspWifi, WifiDeviceId};
 use postcard::from_bytes;
-use spark_messages::Test;
 use std::thread::yield_now;
 use std::time::Duration;
+use spark_messages::Handshake;
 
 fn main() -> anyhow::Result<()> {
     // It is necessary to call this function once. Otherwise some patches to the runtime
@@ -41,7 +41,7 @@ fn main() -> anyhow::Result<()> {
 
                 println!("{:?}", &rx_buf);
 
-                let decoded: Test = from_bytes(&rx_buf)?;
+                let decoded: Handshake = from_bytes(&rx_buf)?;
                 dbg!(decoded);
 
                 let sys_loop = EspSystemEventLoop::take()?;
@@ -77,7 +77,7 @@ fn main() -> anyhow::Result<()> {
     });
 
     loop {
-        thread::sleep(Duration::from_secs(5));
+        std::thread::sleep(Duration::from_secs(5));
     }
 
     log::info!("Hello, world!");
