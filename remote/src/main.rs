@@ -6,7 +6,7 @@ use std::{
 };
 
 use esp_idf_svc::espnow::{PeerInfo, BROADCAST};
-use esp_idf_svc::sys::{esp_base_mac_addr_get, esp_now_peer_info_t};
+use esp_idf_svc::sys::{esp_base_mac_addr_get, esp_err_t, esp_now_peer_info_t, EspError, ESP_ERR_EFUSE, ESP_ERR_TIMEOUT};
 use esp_idf_svc::wifi::{ClientConfiguration, Configuration, WifiDeviceId};
 use esp_idf_svc::{
     espnow::EspNow,
@@ -29,6 +29,7 @@ use esp_idf_svc::{
 };
 use esp_idf_svc::hal::delay::TickType;
 use esp_idf_svc::hal::task::thread::ThreadSpawnConfiguration;
+use esp_idf_svc::io::ErrorKind::TimedOut;
 use postcard::to_slice;
 use spark_messages::{Button, ButtonSequence, Test};
 
@@ -264,6 +265,7 @@ fn i2c_task<'d, M: I2c>(
     to_slice(&d, &mut tx_buf)?;
 
     loop {
+        println!("WAITING FOR COMMAND");
         let mut rx_buf: [u8; 8] = [0; 8];
         match driver.read(&mut rx_buf, TickType::new_millis(100).into()) {
             Ok(_) => {
@@ -271,7 +273,9 @@ fn i2c_task<'d, M: I2c>(
                 println!("Slave receives {:?}", rx_buf);
             }
             Err(e) => {
-                println!("Error: {:?}", e);
+                if e.code() != ESP_ERR_TIMEOUT {
+                     println!("Error: {:?}", e);
+                }
             }
         }
     }
@@ -315,13 +319,13 @@ fn main() -> anyhow::Result<()> {
             esp_now_task(rx_button_seq, peripherals.modem).unwrap();
         }).unwrap();
 
-        // s.spawn(|| {
-        //     i2c_task(
-        //         peripherals.i2c0,
-        //         peripherals.pins.gpio4.downgrade(),
-        //         peripherals.pins.gpio16.downgrade(),
-        //     )
-        // });
+        s.spawn(|| {
+            i2c_task(
+                peripherals.i2c0,
+                peripherals.pins.gpio4.downgrade(),
+                peripherals.pins.gpio16.downgrade(),
+            )
+        });
     });
 
     Ok(())
