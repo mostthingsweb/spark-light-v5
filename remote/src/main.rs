@@ -210,32 +210,32 @@ fn esp_now_task<'d, MODEM: WifiModemPeripheral>(
 
     let mut wifi = BlockingWifi::wrap(EspWifi::new(modem, sys_loop.clone(), Some(nvs))?, sys_loop)?;
 
-    let mac = wifi.wifi().get_mac(WifiDeviceId::Sta).unwrap();
+    let mac = wifi.wifi().get_mac(WifiDeviceId::Sta)?;
     println!("{:x?}", mac);
 
-    let mac = wifi.wifi().get_mac(WifiDeviceId::Ap).unwrap();
+    let mac = wifi.wifi().get_mac(WifiDeviceId::Ap)?;
     println!("{:x?}", mac);
 
     let conf = Configuration::Client(ClientConfiguration::default());
-    wifi.set_configuration(&conf).unwrap();
-    wifi.start().unwrap();
+    wifi.set_configuration(&conf)?;
+    wifi.start()?;
 
-    let espnow: EspNow<'_> = EspNow::take().unwrap();
+    let espnow: EspNow<'_> = EspNow::take()?;
     let peer = PeerInfo {
         peer_addr: BROADCAST,
         channel: 0,
         ..Default::default()
     };
 
-    espnow.add_peer(peer).unwrap();
+    espnow.add_peer(peer)?;
 
     loop {
         let ret = receiver.recv_timeout(Duration::from_millis(10));
         if ret.is_ok() {
             let mut buf: [u8; 32] = [0; 32];
-            postcard::to_slice(&ButtonSequence { buttons: ret.unwrap()}, &mut buf).unwrap();
+            postcard::to_slice(&ButtonSequence { buttons: ret?}, &mut buf)?;
             println!("sending broadcast: {:?}", buf);
-            espnow.send(BROADCAST, &buf).unwrap();
+            espnow.send(BROADCAST, &buf)?;
         } else {
             //task::do_yield();
         }
@@ -292,7 +292,7 @@ fn main() -> anyhow::Result<()> {
     let (tx, rx) = mpsc::channel::<Button>();
     let (tx_button_seq, rx_button_seq) = mpsc::channel::<smallvec::SmallVec<[Button; 5]>>();
 
-    let peripherals = Peripherals::take().unwrap();
+    let peripherals = Peripherals::take()?;
 
     let buttons = maplit::hashmap! {
         Button::Button0 => peripherals.pins.gpio21.downgrade_input(),

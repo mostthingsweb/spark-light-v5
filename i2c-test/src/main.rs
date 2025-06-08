@@ -9,7 +9,6 @@ use esp_idf_svc::nvs::EspDefaultNvsPartition;
 use esp_idf_svc::wifi::{BlockingWifi, ClientConfiguration, Configuration, EspWifi, WifiDeviceId};
 use postcard::from_bytes;
 use spark_messages::Test;
-use std::thread;
 use std::thread::yield_now;
 use std::time::Duration;
 
