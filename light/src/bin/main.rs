@@ -8,7 +8,7 @@
 
 extern crate alloc;
 use embassy_executor::Spawner;
-use embassy_time::{Duration, Timer};
+use embassy_time::{Duration, Ticker, Timer};
 use esp_hal::clock::CpuClock;
 use esp_hal::timer::systimer::SystemTimer;
 use esp_hal::Blocking;
@@ -19,7 +19,16 @@ use smart_leds::{
     SmartLedsWrite, RGB8,
 };
 use esp_hal::rmt::{Channel, ConstChannelAccess, Rmt, Tx};
+use esp_hal::rng::Rng;
 use esp_hal::time::Rate;
+use esp_hal::timer::timg::TimerGroup;
+use esp_wifi::{
+    EspWifiController,
+    esp_now::{BROADCAST_ADDRESS, PeerInfo},
+    init,
+};
+use esp_println::println;
+use embassy_futures::select::{Either, select};
 
 #[panic_handler]
 fn panic(_: &core::panic::PanicInfo) -> ! {
@@ -74,6 +83,16 @@ async fn light_task(
     }
 }
 
+// When you are okay with using a nightly compiler it's better to use https://docs.rs/static_cell/2.1.0/static_cell/macro.make_static.html
+macro_rules! mk_static {
+    ($t:ty,$val:expr) => {{
+        static STATIC_CELL: static_cell::StaticCell<$t> = static_cell::StaticCell::new();
+        #[deny(unused_attributes)]
+        let x = STATIC_CELL.uninit().write(($val));
+        x
+    }};
+}
+
 #[esp_hal_embassy::main]
 async fn main(spawner: Spawner) {
     // generator version: 0.5.0
@@ -96,8 +115,53 @@ async fn main(spawner: Spawner) {
     let led4 = SmartLedsAdapter::new(rmt.channel3, peripherals.GPIO37, rmt_buffer);
 
     spawner.spawn(light_task(led1, led2, led3, led4)).unwrap();
+
+    let timg0 = TimerGroup::new(peripherals.TIMG0);
+
+    let esp_wifi_ctrl = &*mk_static!(EspWifiController<'static>,         init(timg0.timer0, Rng::new(peripherals.RNG)).unwrap());
+
+    let wifi = peripherals.WIFI;
+    let (mut controller, interfaces) = esp_wifi::wifi::new(&esp_wifi_ctrl, wifi).unwrap();
+    controller.set_mode(esp_wifi::wifi::WifiMode::Sta).unwrap();
+    controller.start().unwrap();
+
+    let mut esp_now = interfaces.esp_now;
+    esp_now.set_channel(11).unwrap();
+
+    println!("esp-now version {}", esp_now.version().unwrap());
+
+
+    let mut ticker = Ticker::every(Duration::from_secs(5));
     loop {
-        Timer::after(Duration::from_secs(1)).await;
+        let res = select(ticker.next(), async {
+            let r = esp_now.receive_async().await;
+            println!("Received {:?}", r);
+            if r.info.dst_address == BROADCAST_ADDRESS {
+                if !esp_now.peer_exists(&r.info.src_address) {
+                    esp_now
+                        .add_peer(PeerInfo {
+                            interface: esp_wifi::esp_now::EspNowWifiInterface::Sta,
+                            peer_address: r.info.src_address,
+                            lmk: None,
+                            channel: None,
+                            encrypt: false,
+                        })
+                        .unwrap();
+                }
+                let status = esp_now.send_async(&r.info.src_address, b"Hello Peer").await;
+                println!("Send hello to peer status: {:?}", status);
+            }
+        })
+            .await;
+
+        match res {
+            Either::First(_) => {
+                println!("Send");
+                let status = esp_now.send_async(&BROADCAST_ADDRESS, b"0123456789").await;
+                println!("Send broadcast status: {:?}", status)
+            }
+            Either::Second(_) => (),
+        }
     }
 
     // for inspiration have a look at the examples at https://github.com/esp-rs/esp-hal/tree/esp-hal-v1.0.0-rc.0/examples/src/bin
