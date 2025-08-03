@@ -1,15 +1,16 @@
 [package]
 edition = "2021"
-name    = "remote2"
+name    = "remote"
+rust-version = "1.86"
 version = "0.1.0"
 
 [[bin]]
-name = "remote2"
-path = "./src/bin/async_main.rs"
+name = "remote"
+path = "./src/bin/main.rs"
 
 [dependencies]
 async-button = "0.2.0"
-embassy-net = { version = "0.6.0", features = [
+embassy-net = { version = "0.7.0", features = [
   "dhcpv4",
   "medium-ethernet",
   "tcp",
@@ -17,25 +18,18 @@ embassy-net = { version = "0.6.0", features = [
 ] }
 embedded-io = "0.6.1"
 embedded-io-async = "0.6.1"
-esp-alloc = { version = "0.6.0" }
-esp-backtrace = { version = "0.15.0", features = [
+esp-alloc = { version = "0.8.0" }
+esp-backtrace = { version = "0.17.0", features = [
   "esp32",
   "exception-handler",
   "panic-handler",
   "println",
 ] }
-esp-hal = { version = "0.23.1", features = ["esp32", "unstable"] }
-esp-println = { version = "0.13.0", features = ["esp32", "log"] }
-esp-wifi = { version = "0.12.0", default-features = false, features = [
-  "esp-alloc",
-  "esp32",
-  "log",
-  "utils",
-  "wifi",
-  "esp-now"
-] }
+esp-hal                = { version = "=1.0.0-rc.0", features = ["esp32", "unstable"] }
+esp-println = { version = "0.15.0", features = ["esp32"] }
+esp-wifi = { version = "0.15.0", features = ["esp32", "esp-now"] }
+
 heapless = { version = "0.8.0", default-features = false }
-log = { version = "0.4.21" }
 smoltcp = { version = "0.12.0", default-features = false, features = [
   "medium-ethernet",
   "multicast",
@@ -52,7 +46,7 @@ smoltcp = { version = "0.12.0", default-features = false, features = [
 critical-section = "1.2.0"
 embassy-executor = { version = "0.7.0", features = ["task-arena-size-20480"] }
 embassy-time     = { version = "0.4.0", features = ["generic-queue-8"] }
-esp-hal-embassy  = { version = "0.6.0", features = ["esp32"] }
+esp-hal-embassy  = { version = "0.9.0", features = ["esp32"] }
 static_cell      = { version = "2.1.0", features = ["nightly"] }
 embassy-futures = "0.1.1"
 
