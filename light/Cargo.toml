@@ -31,6 +31,7 @@ esp-backtrace = { version = "0.17.0", features = [
     "println",
 ] }
 postcard = "1"
+spark_messages = { path = "../spark_messages" }
 
 [profile.dev]
 # Rust debug is too slow.

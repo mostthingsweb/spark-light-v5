@@ -36,6 +36,7 @@ use smart_leds::{
     hsv::{hsv2rgb, Hsv},
     SmartLedsWrite, RGB8,
 };
+use spark_messages::{Message, MessageType, PROTOCOL_VERSION};
 
 static REMOTE_MAC: [u8; 6] = [0xC8, 0xF0, 0x9E, 0x2C, 0x28, 0x8C];
 
@@ -99,9 +100,7 @@ async fn light_task(
                         brightness(gamma(data.iter().cloned()), 10).next().unwrap(),
                         brightness(gamma(data.iter().cloned()), 10).next().unwrap(),
                         brightness(gamma(data.iter().cloned()), 10).next().unwrap(),
-                        brightness(gamma(data.iter().cloned()), 10)
-                            .next()
-                            .unwrap(),
+                        brightness(gamma(data.iter().cloned()), 10).next().unwrap(),
                         brightness(gamma(data.iter().cloned()), 10).next().unwrap(),
                         brightness(gamma(data.iter().cloned()), 10).next().unwrap(),
                         brightness(gamma(data.iter().cloned()), 10).next().unwrap(),
@@ -142,8 +141,22 @@ async fn listener(
     loop {
         let r = receiver.receive_async().await;
         if r.info.dst_address == BROADCAST_ADDRESS && r.info.src_address == REMOTE_MAC {
-            println!("Received {:?}", r.data());
-            LIGHT_TRIGGER.signal(());
+            let message = postcard::from_bytes::<Message>(r.data());
+            match message {
+                Ok(message) => {
+                    println!("got message: {:?}", message);
+                    match message.message_type {
+                        // TODO: do different things depending on specific event
+                        MessageType::ButtonEvent { .. } => {
+                            LIGHT_TRIGGER.signal(());
+                        }
+                        _ => {
+                            // unknown message type
+                        }
+                    }
+                }
+                Err(e) => println!("failed to decode: {:?}", e),
+            }
         }
     }
 }

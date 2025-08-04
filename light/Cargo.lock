@@ -15,6 +15,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e16d2d3311acee920a9eb8d33b8cbc1787ce4a264e85f964c2404b969bdcd487"
 
 [[package]]
+name = "async-button"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c6cb2c64198ecf080dccccff92166ee0eb0fc1b22b15546903d59ea31ad76f6d"
+dependencies = [
+ "cfg-if",
+ "embassy-time",
+ "embedded-hal 1.0.0",
+ "embedded-hal-async",
+]
+
+[[package]]
 name = "atomic-polyfill"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -964,6 +976,7 @@ dependencies = [
  "esp-wifi",
  "postcard",
  "smart-leds",
+ "spark_messages",
  "static_cell",
 ]
 
@@ -1296,6 +1309,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "edeb89c73244414bb0568611690dd095b2358b3fda5bae65ad784806cca00157"
 dependencies = [
  "rgb",
+]
+
+[[package]]
+name = "spark_messages"
+version = "0.1.0"
+dependencies = [
+ "async-button",
+ "serde",
 ]
 
 [[package]]

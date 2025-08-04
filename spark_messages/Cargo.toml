@@ -4,5 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-serde = { version = "1", features = ["serde_derive"] }
-smallvec = { version = "1", features = ["serde"] }
+async-button = "0.2.0"
+serde = { version = "1", default-features = false, features = ["derive"] }
+
+# TODO: in the future, use this crate to handle new message types/protocl changes
+#serde-versioning = "1.0.219"

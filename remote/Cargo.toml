@@ -28,7 +28,8 @@ esp-backtrace = { version = "0.17.0", features = [
 esp-hal                = { version = "=1.0.0-rc.0", features = ["esp32", "unstable"] }
 esp-println = { version = "0.15.0", features = ["esp32"] }
 esp-wifi = { version = "0.15.0", features = ["esp32", "esp-now"] }
-postcard = "1"
+postcard = {  version = "1", default-features = false}
+spark_messages = { path = "../spark_messages" }
 
 # for more networking protocol support see https://crates.io/crates/edge-net
 critical-section = "1.2.0"
