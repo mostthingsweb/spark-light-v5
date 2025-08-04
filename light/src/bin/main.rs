@@ -9,7 +9,6 @@
 #[allow(unused_imports)]
 use esp_backtrace as _;
 
-
 use embassy_executor::Spawner;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
@@ -20,17 +19,17 @@ use esp_hal::rng::Rng;
 use esp_hal::time::Rate;
 use esp_hal::timer::systimer::SystemTimer;
 use esp_hal::timer::timg::TimerGroup;
-use esp_hal_smartled::{smart_led_buffer, SmartLedsAdapter};
+use esp_hal_smartled::{SmartLedsAdapter, smart_led_buffer};
 use esp_println::println;
 use esp_wifi::esp_now::{EspNowManager, EspNowReceiver};
 use esp_wifi::{
-    esp_now::{PeerInfo, BROADCAST_ADDRESS},
-    init, EspWifiController,
+    EspWifiController,
+    esp_now::{BROADCAST_ADDRESS, PeerInfo},
+    init,
 };
 use smart_leds::{
-    brightness, gamma,
-    hsv::{hsv2rgb, Hsv},
-    SmartLedsWrite, RGB8,
+    RGB8, SmartLedsWrite, brightness, gamma,
+    hsv::{Hsv, hsv2rgb},
 };
 use spark_messages::{Message, MessageType, PROTOCOL_VERSION};
 
@@ -153,7 +152,10 @@ async fn listener(
                             }
                         }
                     } else {
-                        println!("ignore message with bad protocol version; expected {}", PROTOCOL_VERSION);
+                        println!(
+                            "ignore message with bad protocol version; expected {}",
+                            PROTOCOL_VERSION
+                        );
                     }
                 }
                 Err(e) => println!("failed to decode: {:?}", e),

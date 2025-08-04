@@ -11,8 +11,8 @@ use esp_hal::gpio::{Input, InputConfig, Pull};
 use esp_hal::rng::Rng;
 use esp_hal::timer::timg::TimerGroup;
 use esp_println::println;
-use esp_wifi::esp_now::{PeerInfo, BROADCAST_ADDRESS};
-use esp_wifi::{init, EspWifiController};
+use esp_wifi::esp_now::{BROADCAST_ADDRESS, PeerInfo};
+use esp_wifi::{EspWifiController, init};
 use spark_messages::{ButtonNumber, Message, MessageType, PROTOCOL_VERSION};
 
 // When you are okay with using a nightly compiler it's better to use https://docs.rs/static_cell/2.1.0/static_cell/macro.make_static.html
