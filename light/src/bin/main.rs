@@ -117,39 +117,36 @@ async fn listener(manager: &'static EspNowManager<'static>, mut receiver: EspNow
     }
 }
 
-#[embassy_executor::task]
-async fn interrupt_listen() {}
-
-static BUTTON: Mutex<RefCell<Option<Input>>> = Mutex::new(RefCell::new(None));
-
-#[handler]
-#[ram]
-fn handler() {
-    println!(
-        "GPIO Interrupt with priority {}",
-        esp_hal::xtensa_lx::interrupt::get_level()
-    );
-
-    if critical_section::with(|cs| {
-        BUTTON
-            .borrow_ref_mut(cs)
-            .as_mut()
-            .unwrap()
-            .is_interrupt_set()
-    }) {
-        println!("Button was the source of the interrupt");
-    } else {
-        println!("Button was not the source of the interrupt");
-    }
-
-    critical_section::with(|cs| {
-        BUTTON
-            .borrow_ref_mut(cs)
-            .as_mut()
-            .unwrap()
-            .clear_interrupt()
-    });
-}
+//static BUTTON: Mutex<RefCell<Option<Input>>> = Mutex::new(RefCell::new(None));
+//
+// #[handler]
+// #[ram]
+// fn handler() {
+//     println!(
+//         "GPIO Interrupt with priority {}",
+//         esp_hal::xtensa_lx::interrupt::get_level()
+//     );
+//
+//     if critical_section::with(|cs| {
+//         BUTTON
+//             .borrow_ref_mut(cs)
+//             .as_mut()
+//             .unwrap()
+//             .is_interrupt_set()
+//     }) {
+//         println!("Button was the source of the interrupt");
+//     } else {
+//         println!("Button was not the source of the interrupt");
+//     }
+//
+//     critical_section::with(|cs| {
+//         BUTTON
+//             .borrow_ref_mut(cs)
+//             .as_mut()
+//             .unwrap()
+//             .clear_interrupt()
+//     });
+// }
 
 #[esp_hal_embassy::main]
 async fn main(spawner: Spawner) {
@@ -195,12 +192,11 @@ async fn main(spawner: Spawner) {
     controller.set_mode(esp_wifi::wifi::WifiMode::Sta).unwrap();
     controller.start().unwrap();
 
-    let mut esp_now = interfaces.esp_now;
+    let esp_now = interfaces.esp_now;
     esp_now.set_channel(11).unwrap();
 
     println!("esp-now version {}", esp_now.version().unwrap());
 
-    println!("{:?}", REMOTE_MAC);
     if !esp_now.peer_exists(&BROADCAST_ADDRESS) {
         esp_now
             .add_peer(PeerInfo {
@@ -213,8 +209,9 @@ async fn main(spawner: Spawner) {
             .unwrap();
     }
 
-    let (manager, sender, receiver) = esp_now.split();
+    let (manager, _, receiver) = esp_now.split();
     let manager = mk_static!(EspNowManager<'static>, manager);
+
     spawner.spawn(listener(manager, receiver)).ok();
     spawner.spawn(light_task(led1, led2, led3, led4)).unwrap();
 
