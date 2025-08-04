@@ -52,9 +52,6 @@ async fn main(spawner: Spawner) {
 
     println!("esp-now version {}", esp_now.version().unwrap());
 
-    // TODO: Spawn some tasks
-    let _ = spawner;
-
     let c = InputConfig::default().with_pull(Pull::Up);
 
     let mut async_button = Button::new(

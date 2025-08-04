@@ -12,7 +12,9 @@ use core::cell::RefCell;
 use critical_section::Mutex;
 use embassy_executor::Spawner;
 use embassy_futures::select::{select, Either};
-use embassy_time::{Duration, Ticker, Timer};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::signal::Signal;
+use embassy_time::{Duration, Instant, Ticker, Timer};
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
 use esp_hal::gpio::{Event, Input, InputConfig, Io};
@@ -41,6 +43,8 @@ static REMOTE_MAC: [u8; 6] = [0xC8, 0xF0, 0x9E, 0x2C, 0x28, 0x8C];
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
 esp_bootloader_esp_idf::esp_app_desc!();
 
+static LIGHT_TRIGGER: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+
 #[embassy_executor::task]
 async fn light_task(
     mut led1: SmartLedsAdapter<ConstChannelAccess<Tx, 0>, 193>,
@@ -55,33 +59,65 @@ async fn light_task(
     };
     let mut data;
 
+    let mut bright: u8 = 255;
+
     loop {
-        for hue in 0..=255 {
-            color.hue = hue;
-            // Convert from the HSV color space (where we can easily transition from one
-            // color to the other) to the RGB color space that we can then send to the LED
-            data = [hsv2rgb(color)];
-            // When sending to the LED, we do a gamma correction first (see smart_leds
-            // documentation for details) and then limit the brightness to 10 out of 255 so
-            // that the output it's not too bright.
+        LIGHT_TRIGGER.wait().await;
 
-            let data2: &[RGB8; 8] = &[
-                brightness(gamma(data.iter().cloned()), 10).next().unwrap(),
-                brightness(gamma(data.iter().cloned()), 10).next().unwrap(),
-                brightness(gamma(data.iter().cloned()), 10).next().unwrap(),
-                brightness(gamma(data.iter().cloned()), 10).next().unwrap(),
-                brightness(gamma(data.iter().cloned()), 10).next().unwrap(),
-                brightness(gamma(data.iter().cloned()), 10).next().unwrap(),
-                brightness(gamma(data.iter().cloned()), 10).next().unwrap(),
-                brightness(gamma(data.iter().cloned()), 10).next().unwrap(),
-            ];
+        let mut deadline = Instant::now() + Duration::from_secs(3);
 
-            led1.write(data2.iter().cloned()).unwrap();
-            led2.write(data2.iter().cloned()).unwrap();
-            led3.write(data2.iter().cloned()).unwrap();
-            led4.write(data2.iter().cloned()).unwrap();
-            Timer::after(Duration::from_millis(20)).await;
+        'anim: loop {
+            let frame_timer = Timer::after(Duration::from_millis(10));
+
+            let timeout = Timer::at(deadline);
+
+            let trigger = LIGHT_TRIGGER.wait();
+
+            match embassy_futures::select::select3(trigger, timeout, frame_timer).await {
+                embassy_futures::select::Either3::First(a) => {
+                    deadline = Instant::now() + Duration::from_secs(3);
+                    continue 'anim;
+                }
+                embassy_futures::select::Either3::Second(b) => {
+                    break 'anim;
+                }
+                embassy_futures::select::Either3::Third(a) => {
+                    color.hue = color.hue.wrapping_add(1);
+                    // Convert from the HSV color space (where we can easily transition from one
+                    // color to the other) to the RGB color space that we can then send to the LED
+                    data = [hsv2rgb(color)];
+                    // When sending to the LED, we do a gamma correction first (see smart_leds
+                    // documentation for details) and then limit the brightness to 10 out of 255 so
+                    // that the output it's not too bright.
+
+                    let data2: &[RGB8; 8] = &[
+                        brightness(gamma(data.iter().cloned()), 10).next().unwrap(),
+                        brightness(gamma(data.iter().cloned()), 10).next().unwrap(),
+                        brightness(gamma(data.iter().cloned()), 10).next().unwrap(),
+                        brightness(gamma(data.iter().cloned()), bright)
+                            .next()
+                            .unwrap(),
+                        brightness(gamma(data.iter().cloned()), 10).next().unwrap(),
+                        brightness(gamma(data.iter().cloned()), 10).next().unwrap(),
+                        brightness(gamma(data.iter().cloned()), 10).next().unwrap(),
+                        brightness(gamma(data.iter().cloned()), 10).next().unwrap(),
+                    ];
+
+                    led1.write(data2.iter().cloned()).unwrap();
+                    led2.write(data2.iter().cloned()).unwrap();
+                    led3.write(data2.iter().cloned()).unwrap();
+                    led4.write(data2.iter().cloned()).unwrap();
+
+                    bright = bright.wrapping_add(5);
+                }
+            }
         }
+
+        let off = &[RGB8::default(); 8];
+        led1.write(off.iter().cloned()).unwrap();
+        led2.write(off.iter().cloned()).unwrap();
+        led3.write(off.iter().cloned()).unwrap();
+        led4.write(off.iter().cloned()).unwrap();
     }
 }
 
@@ -96,23 +132,15 @@ macro_rules! mk_static {
 }
 
 #[embassy_executor::task]
-async fn listener(manager: &'static EspNowManager<'static>, mut receiver: EspNowReceiver<'static>) {
+async fn listener(
+    _manager: &'static EspNowManager<'static>,
+    mut receiver: EspNowReceiver<'static>,
+) {
     loop {
         let r = receiver.receive_async().await;
-        println!("Received {:?}", r.data());
-        if r.info.dst_address == BROADCAST_ADDRESS {
-            if !manager.peer_exists(&r.info.src_address) {
-                manager
-                    .add_peer(PeerInfo {
-                        interface: esp_wifi::esp_now::EspNowWifiInterface::Sta,
-                        peer_address: r.info.src_address,
-                        lmk: None,
-                        channel: None,
-                        encrypt: false,
-                    })
-                    .unwrap();
-                println!("Added peer {:?}", r.info.src_address);
-            }
+        if r.info.dst_address == BROADCAST_ADDRESS && r.info.src_address == REMOTE_MAC {
+            println!("Received {:?}", r.data());
+            LIGHT_TRIGGER.signal(());
         }
     }
 }
