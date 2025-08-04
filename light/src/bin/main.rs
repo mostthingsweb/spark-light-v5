@@ -6,24 +6,20 @@
     holding buffers for the duration of a data transfer."
 )]
 
-extern crate alloc;
+#[allow(unused_imports)]
+use esp_backtrace as _;
 
-use core::cell::RefCell;
-use critical_section::Mutex;
+
 use embassy_executor::Spawner;
-use embassy_futures::select::{select, Either};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Instant, Ticker, Timer};
-use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
-use esp_hal::gpio::{Event, Input, InputConfig, Io};
-use esp_hal::rmt::{Channel, ConstChannelAccess, Rmt, Tx};
+use esp_hal::rmt::{ConstChannelAccess, Rmt, Tx};
 use esp_hal::rng::Rng;
 use esp_hal::time::Rate;
 use esp_hal::timer::systimer::SystemTimer;
 use esp_hal::timer::timg::TimerGroup;
-use esp_hal::{handler, ram, Blocking};
 use esp_hal_smartled::{smart_led_buffer, SmartLedsAdapter};
 use esp_println::println;
 use esp_wifi::esp_now::{EspNowManager, EspNowReceiver};
@@ -145,14 +141,19 @@ async fn listener(
             match message {
                 Ok(message) => {
                     println!("got message: {:?}", message);
-                    match message.message_type {
-                        // TODO: do different things depending on specific event
-                        MessageType::ButtonEvent { .. } => {
-                            LIGHT_TRIGGER.signal(());
+
+                    if message.protocol_version == PROTOCOL_VERSION {
+                        match message.message_type {
+                            // TODO: do different things depending on specific event
+                            MessageType::ButtonEvent { .. } => {
+                                LIGHT_TRIGGER.signal(());
+                            }
+                            _ => {
+                                // unknown message type
+                            }
                         }
-                        _ => {
-                            // unknown message type
-                        }
+                    } else {
+                        println!("ignore message with bad protocol version; expected {}", PROTOCOL_VERSION);
                     }
                 }
                 Err(e) => println!("failed to decode: {:?}", e),
@@ -232,7 +233,7 @@ async fn main(spawner: Spawner) {
     );
 
     let wifi = peripherals.WIFI;
-    let (mut controller, interfaces) = esp_wifi::wifi::new(&esp_wifi_ctrl, wifi).unwrap();
+    let (mut controller, interfaces) = esp_wifi::wifi::new(esp_wifi_ctrl, wifi).unwrap();
     controller.set_mode(esp_wifi::wifi::WifiMode::Sta).unwrap();
     controller.start().unwrap();
 

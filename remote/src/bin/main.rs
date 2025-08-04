@@ -1,11 +1,11 @@
 #![no_std]
 #![no_main]
 
+#[allow(unused_imports)]
+use esp_backtrace as _;
+
 use async_button::{Button, ButtonConfig, ButtonEvent};
 use embassy_executor::Spawner;
-use embassy_futures::select::select;
-use embassy_time::{Duration, Ticker};
-use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
 use esp_hal::gpio::{Input, InputConfig, Pull};
 use esp_hal::rng::Rng;
@@ -26,7 +26,7 @@ macro_rules! mk_static {
 }
 
 #[esp_hal_embassy::main]
-async fn main(spawner: Spawner) {
+async fn main(_spawner: Spawner) {
     // generator version: 0.2.2
 
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
@@ -47,7 +47,7 @@ async fn main(spawner: Spawner) {
     );
 
     let wifi = peripherals.WIFI;
-    let (mut controller, interfaces) = esp_wifi::wifi::new(&esp_wifi_ctrl, wifi).unwrap();
+    let (mut controller, interfaces) = esp_wifi::wifi::new(esp_wifi_ctrl, wifi).unwrap();
     controller.set_mode(esp_wifi::wifi::WifiMode::Sta).unwrap();
     controller.start().unwrap();
 
@@ -81,25 +81,25 @@ async fn main(spawner: Spawner) {
         let event3 = async_button3.update();
         let event4 = async_button4.update();
 
-        let event_data: (ButtonNumber, ButtonEvent);
-        match embassy_futures::select::select4(event1, event2, event3, event4).await {
-            embassy_futures::select::Either4::First(e) => {
-                println!("button1: {:?}", e);
-                event_data = (ButtonNumber::Button1, e);
-            }
-            embassy_futures::select::Either4::Second(e) => {
-                println!("button2: {:?}", e);
-                event_data = (ButtonNumber::Button2, e);
-            }
-            embassy_futures::select::Either4::Third(e) => {
-                println!("button3: {:?}", e);
-                event_data = (ButtonNumber::Button3, e);
-            }
-            embassy_futures::select::Either4::Fourth(e) => {
-                println!("button4: {:?}", e);
-                event_data = (ButtonNumber::Button4, e);
-            }
-        }
+        let event_data: (ButtonNumber, ButtonEvent) =
+            match embassy_futures::select::select4(event1, event2, event3, event4).await {
+                embassy_futures::select::Either4::First(e) => {
+                    println!("button1: {:?}", e);
+                    (ButtonNumber::Button1, e)
+                }
+                embassy_futures::select::Either4::Second(e) => {
+                    println!("button2: {:?}", e);
+                    (ButtonNumber::Button2, e)
+                }
+                embassy_futures::select::Either4::Third(e) => {
+                    println!("button3: {:?}", e);
+                    (ButtonNumber::Button3, e)
+                }
+                embassy_futures::select::Either4::Fourth(e) => {
+                    println!("button4: {:?}", e);
+                    (ButtonNumber::Button4, e)
+                }
+            };
 
         let mut tx_bux: [u8; 32] = [0; 32];
         let message = Message {
