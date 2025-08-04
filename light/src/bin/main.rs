@@ -52,36 +52,41 @@ async fn light_task(
     mut led3: SmartLedsAdapter<ConstChannelAccess<Tx, 2>, 193>,
     mut led4: SmartLedsAdapter<ConstChannelAccess<Tx, 3>, 193>,
 ) {
+    // Turn off all pixels at startup
+    let off = &[RGB8::default(); 8];
+    led1.write(off.iter().cloned()).unwrap();
+    led2.write(off.iter().cloned()).unwrap();
+    led3.write(off.iter().cloned()).unwrap();
+    led4.write(off.iter().cloned()).unwrap();
+
     let mut color = Hsv {
         hue: 0,
         sat: 255,
         val: 255,
     };
+
     let mut data;
-
-    let mut bright: u8 = 255;
-
     loop {
+        // Wait for button press
         LIGHT_TRIGGER.wait().await;
 
+        // Animation runs for 3 seconds, unless restarted by button press
         let mut deadline = Instant::now() + Duration::from_secs(3);
 
         'anim: loop {
             let frame_timer = Timer::after(Duration::from_millis(10));
-
-            let timeout = Timer::at(deadline);
-
+            let animation_timer = Timer::at(deadline);
             let trigger = LIGHT_TRIGGER.wait();
 
-            match embassy_futures::select::select3(trigger, timeout, frame_timer).await {
-                embassy_futures::select::Either3::First(a) => {
+            match embassy_futures::select::select3(trigger, animation_timer, frame_timer).await {
+                embassy_futures::select::Either3::First(_) => {
                     deadline = Instant::now() + Duration::from_secs(3);
                     continue 'anim;
                 }
-                embassy_futures::select::Either3::Second(b) => {
+                embassy_futures::select::Either3::Second(_) => {
                     break 'anim;
                 }
-                embassy_futures::select::Either3::Third(a) => {
+                embassy_futures::select::Either3::Third(_) => {
                     color.hue = color.hue.wrapping_add(1);
                     // Convert from the HSV color space (where we can easily transition from one
                     // color to the other) to the RGB color space that we can then send to the LED
@@ -94,7 +99,7 @@ async fn light_task(
                         brightness(gamma(data.iter().cloned()), 10).next().unwrap(),
                         brightness(gamma(data.iter().cloned()), 10).next().unwrap(),
                         brightness(gamma(data.iter().cloned()), 10).next().unwrap(),
-                        brightness(gamma(data.iter().cloned()), bright)
+                        brightness(gamma(data.iter().cloned()), 10)
                             .next()
                             .unwrap(),
                         brightness(gamma(data.iter().cloned()), 10).next().unwrap(),
@@ -107,8 +112,6 @@ async fn light_task(
                     led2.write(data2.iter().cloned()).unwrap();
                     led3.write(data2.iter().cloned()).unwrap();
                     led4.write(data2.iter().cloned()).unwrap();
-
-                    bright = bright.wrapping_add(5);
                 }
             }
         }
