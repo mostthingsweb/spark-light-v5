@@ -11,30 +11,29 @@ extern crate alloc;
 use core::cell::RefCell;
 use critical_section::Mutex;
 use embassy_executor::Spawner;
+use embassy_futures::select::{select, Either};
 use embassy_time::{Duration, Ticker, Timer};
+use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
+use esp_hal::gpio::{Event, Input, InputConfig, Io};
+use esp_hal::rmt::{Channel, ConstChannelAccess, Rmt, Tx};
+use esp_hal::rng::Rng;
+use esp_hal::time::Rate;
 use esp_hal::timer::systimer::SystemTimer;
+use esp_hal::timer::timg::TimerGroup;
 use esp_hal::{handler, ram, Blocking};
 use esp_hal_smartled::{smart_led_buffer, SmartLedsAdapter};
+use esp_println::println;
+use esp_wifi::esp_now::{EspNowManager, EspNowReceiver};
+use esp_wifi::{
+    esp_now::{PeerInfo, BROADCAST_ADDRESS},
+    init, EspWifiController,
+};
 use smart_leds::{
     brightness, gamma,
     hsv::{hsv2rgb, Hsv},
     SmartLedsWrite, RGB8,
 };
-use esp_hal::rmt::{Channel, ConstChannelAccess, Rmt, Tx};
-use esp_hal::rng::Rng;
-use esp_hal::time::Rate;
-use esp_hal::timer::timg::TimerGroup;
-use esp_wifi::{
-    EspWifiController,
-    esp_now::{BROADCAST_ADDRESS, PeerInfo},
-    init,
-};
-use esp_println::println;
-use embassy_futures::select::{Either, select};
-use esp_wifi::esp_now::{EspNowManager, EspNowReceiver};
-use esp_backtrace as _;
-use esp_hal::gpio::{Event, Input, InputConfig, Io};
 
 static REMOTE_MAC: [u8; 6] = [0xC8, 0xF0, 0x9E, 0x2C, 0x28, 0x8C];
 
@@ -119,9 +118,7 @@ async fn listener(manager: &'static EspNowManager<'static>, mut receiver: EspNow
 }
 
 #[embassy_executor::task]
-async fn interrupt_listen() {
-
-}
+async fn interrupt_listen() {}
 
 static BUTTON: Mutex<RefCell<Option<Input>>> = Mutex::new(RefCell::new(None));
 
@@ -188,7 +185,10 @@ async fn main(spawner: Spawner) {
 
     let timg0 = TimerGroup::new(peripherals.TIMG0);
 
-    let esp_wifi_ctrl = &*mk_static!(EspWifiController<'static>,         init(timg0.timer0, Rng::new(peripherals.RNG)).unwrap());
+    let esp_wifi_ctrl = &*mk_static!(
+        EspWifiController<'static>,
+        init(timg0.timer0, Rng::new(peripherals.RNG)).unwrap()
+    );
 
     let wifi = peripherals.WIFI;
     let (mut controller, interfaces) = esp_wifi::wifi::new(&esp_wifi_ctrl, wifi).unwrap();
