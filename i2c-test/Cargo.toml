@@ -23,10 +23,11 @@ default = []
 experimental = ["esp-idf-svc/experimental"]
 
 [dependencies]
+crc = "3"
 log = "0.4"
 esp-idf-svc = { version = "0.51", features = ["critical-section", "embassy-time-driver", "embassy-sync"] }
 anyhow = "1"
-postcard = "1"
+postcard = { version = "1", features = ["use-crc"]}
 
 spark_messages = { path = "../spark_messages" }
 

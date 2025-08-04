@@ -4,7 +4,7 @@ use std::{
     sync::mpsc::{self, Receiver, Sender},
     time::Duration,
 };
-
+use crc::{Crc, CRC_32_BZIP2, CRC_32_ISCSI};
 use esp_idf_svc::espnow::{PeerInfo, BROADCAST};
 use esp_idf_svc::hal::delay::TickType;
 use esp_idf_svc::hal::task::thread::ThreadSpawnConfiguration;
@@ -239,11 +239,13 @@ fn esp_now_task<'d, MODEM: WifiModemPeripheral>(
 
     espnow.add_peer(peer)?;
 
+    let crc = Crc::<u32>::new(&CRC_32_BZIP2);
+
     loop {
         let ret = receiver.recv_timeout(Duration::from_millis(10));
         if ret.is_ok() {
             let mut buf: [u8; 32] = [0; 32];
-            postcard::to_slice(&ButtonSequence { buttons: ret? }, &mut buf)?;
+            postcard::to_slice_crc32(&ButtonSequence { buttons: ret? }, &mut buf, crc.digest())?;
             println!("sending broadcast: {:?}", buf);
             espnow.send(BROADCAST, &buf)?;
         } else {
@@ -261,7 +263,6 @@ fn i2c_task<'d, M: I2c>(
     sda: AnyIOPin,
     scl: AnyIOPin,
 ) -> anyhow::Result<()> {
-    let mut rx_buf: [u8; 8] = [0; 8];
     let config = I2cSlaveConfig::new()
         .rx_buffer_length(SLAVE_BUFFER_SIZE)
         .tx_buffer_length(SLAVE_BUFFER_SIZE);
@@ -285,15 +286,15 @@ fn i2c_task<'d, M: I2c>(
 
     let mut tx_buf: [u8; 32] = [0; 32];
     to_slice(&handshake, &mut tx_buf)?;
+    let crc = Crc::<u32>::new(&CRC_32_BZIP2);
 
     loop {
-        println!("WAITING FOR COMMAND");
         let mut rx_buf: [u8; 32] = [0; 32];
         match driver.read(&mut rx_buf, TickType::new_millis(100).into()) {
             Ok(_) => {
                 println!("Slave receives {:?}", rx_buf);
 
-                let command: SparkI2cCommand = postcard::from_bytes(&rx_buf)?;
+                let command: SparkI2cCommand = postcard::from_bytes_crc32(&rx_buf, crc.digest())?;
                 match command.kind {
                     SparkI2cCommandKind::Handshake { light_mac } => {
                         eprintln!("mac: {:?}", light_mac);
@@ -352,14 +353,17 @@ fn main() -> anyhow::Result<()> {
             })
             .unwrap();
 
-        s.spawn(|| {
-            i2c_task(
-                rx_mac,
-                peripherals.i2c0,
-                peripherals.pins.gpio4.downgrade(),
-                peripherals.pins.gpio16.downgrade(),
-            )
-        });
+        std::thread::Builder::new()
+            .stack_size(7000)
+            .spawn_scoped(s,
+                || {
+                    i2c_task(
+                        rx_mac,
+                        peripherals.i2c0,
+                        peripherals.pins.gpio4.downgrade(),
+                        peripherals.pins.gpio16.downgrade(),
+                    )
+        }).unwrap();
     });
 
     Ok(())

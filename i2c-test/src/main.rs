@@ -5,11 +5,11 @@ use esp_idf_svc::hal::i2c::{I2cConfig, I2cDriver};
 use esp_idf_svc::hal::prelude::Peripherals;
 use esp_idf_svc::hal::prelude::*;
 use esp_idf_svc::hal::units::Hertz;
-use esp_idf_svc::nvs::EspDefaultNvsPartition;
+use esp_idf_svc::nvs::{EspCustomNvsPartition, EspDefaultNvsPartition, EspNvs};
 use esp_idf_svc::wifi::{BlockingWifi, ClientConfiguration, Configuration, EspWifi, WifiDeviceId};
-use postcard::from_bytes;
 use std::thread::yield_now;
 use std::time::Duration;
+use crc::{Crc, CRC_32_BZIP2};
 use spark_messages::{SparkI2cCommand, HandshakeCommandResponse, SparkI2cCommandKind};
 
 fn main() -> anyhow::Result<()> {
@@ -38,9 +38,11 @@ fn main() -> anyhow::Result<()> {
                 let nvs = EspDefaultNvsPartition::take()?;
 
                 let mut wifi = BlockingWifi::wrap(
-                    EspWifi::new(peripherals.modem, sys_loop.clone(), Some(nvs))?,
+                    EspWifi::new(peripherals.modem, sys_loop.clone(), Some(nvs.clone()))?,
                     sys_loop,
                 )?;
+
+                let n = EspNvs::new(nvs, "spark", true)?;
 
                 let mac = wifi.wifi().get_mac(WifiDeviceId::Sta)?;
                 println!("{:x?}", mac);
@@ -52,14 +54,34 @@ fn main() -> anyhow::Result<()> {
                     }
                 };
 
+                let crc = Crc::<u32>::new(&CRC_32_BZIP2);
+
                 let mut tx_buf: [u8; 32] = [0; 32];
-                postcard::to_slice(&command, &mut tx_buf)?;
+                postcard::to_slice_crc32(&command, &mut tx_buf, crc.digest())?;
                 driver.write(0x23, &tx_buf, BLOCK)?;
+
+                println!("1");
 
                 let mut rx_buf: [u8; 32] = [0; 32];
                 driver.read(0x23, &mut rx_buf, BLOCK)?;
-                let decoded: HandshakeCommandResponse = from_bytes(&rx_buf)?;
+                let decoded: HandshakeCommandResponse = postcard::from_bytes_crc32(&rx_buf, crc.digest())?;
                 dbg!(decoded);
+
+                // Record the remote's MAC address
+                //
+                // eprintln!("WAT");
+                //
+                // let qqq = n.get_i8("wat");
+                // dbg!(qqq);
+                //
+                // let ret = n.set_i8("wat", 12);
+                // dbg!(ret);
+                // ret.unwrap();
+                //
+                // let qqq = n.get_i8("wat");
+                // dbg!(qqq);
+                //
+
 
                 let conf = Configuration::Client(ClientConfiguration::default());
                 wifi.set_configuration(&conf).unwrap();
