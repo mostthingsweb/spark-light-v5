@@ -7,11 +7,14 @@
 )]
 
 extern crate alloc;
+
+use core::cell::RefCell;
+use critical_section::Mutex;
 use embassy_executor::Spawner;
 use embassy_time::{Duration, Ticker, Timer};
 use esp_hal::clock::CpuClock;
 use esp_hal::timer::systimer::SystemTimer;
-use esp_hal::Blocking;
+use esp_hal::{handler, ram, Blocking};
 use esp_hal_smartled::{smart_led_buffer, SmartLedsAdapter};
 use smart_leds::{
     brightness, gamma,
@@ -31,7 +34,7 @@ use esp_println::println;
 use embassy_futures::select::{Either, select};
 use esp_wifi::esp_now::{EspNowManager, EspNowReceiver};
 use esp_backtrace as _;
-
+use esp_hal::gpio::{Event, Input, InputConfig, Io};
 
 static REMOTE_MAC: [u8; 6] = [0xC8, 0xF0, 0x9E, 0x2C, 0x28, 0x8C];
 
@@ -115,12 +118,59 @@ async fn listener(manager: &'static EspNowManager<'static>, mut receiver: EspNow
     }
 }
 
+#[embassy_executor::task]
+async fn interrupt_listen() {
+
+}
+
+static BUTTON: Mutex<RefCell<Option<Input>>> = Mutex::new(RefCell::new(None));
+
+#[handler]
+#[ram]
+fn handler() {
+    println!(
+        "GPIO Interrupt with priority {}",
+        esp_hal::xtensa_lx::interrupt::get_level()
+    );
+
+    if critical_section::with(|cs| {
+        BUTTON
+            .borrow_ref_mut(cs)
+            .as_mut()
+            .unwrap()
+            .is_interrupt_set()
+    }) {
+        println!("Button was the source of the interrupt");
+    } else {
+        println!("Button was not the source of the interrupt");
+    }
+
+    critical_section::with(|cs| {
+        BUTTON
+            .borrow_ref_mut(cs)
+            .as_mut()
+            .unwrap()
+            .clear_interrupt()
+    });
+}
+
 #[esp_hal_embassy::main]
 async fn main(spawner: Spawner) {
     // generator version: 0.5.0
 
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(config);
+    //
+    // let mut io = Io::new(peripherals.IO_MUX);
+    // io.set_interrupt_handler(handler);
+    //
+    // let config = InputConfig::default();
+    // let mut button = Input::new(peripherals.GPIO4, config);
+    //
+    // critical_section::with(|cs| {
+    //     button.listen(Event::RisingEdge);
+    //     BUTTON.borrow_ref_mut(cs).replace(button)
+    // });
 
     esp_alloc::heap_allocator!(size: 64 * 1024);
 
@@ -151,16 +201,17 @@ async fn main(spawner: Spawner) {
     println!("esp-now version {}", esp_now.version().unwrap());
 
     println!("{:?}", REMOTE_MAC);
-    esp_now
-        .add_peer(PeerInfo {
-            interface: esp_wifi::esp_now::EspNowWifiInterface::Sta,
-            peer_address: BROADCAST_ADDRESS,
-            lmk: None,
-            channel: None,
-            encrypt: false,
-        })
-        .unwrap();
-
+    if !esp_now.peer_exists(&BROADCAST_ADDRESS) {
+        esp_now
+            .add_peer(PeerInfo {
+                interface: esp_wifi::esp_now::EspNowWifiInterface::Sta,
+                peer_address: BROADCAST_ADDRESS,
+                lmk: None,
+                channel: None,
+                encrypt: false,
+            })
+            .unwrap();
+    }
 
     let (manager, sender, receiver) = esp_now.split();
     let manager = mk_static!(EspNowManager<'static>, manager);
