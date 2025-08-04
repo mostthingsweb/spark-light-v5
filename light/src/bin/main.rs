@@ -92,14 +92,14 @@ async fn light_task(
                     // that the output it's not too bright.
 
                     let data2: &[RGB8; 8] = &[
-                        brightness(gamma(data.iter().cloned()), 10).next().unwrap(),
-                        brightness(gamma(data.iter().cloned()), 10).next().unwrap(),
-                        brightness(gamma(data.iter().cloned()), 10).next().unwrap(),
-                        brightness(gamma(data.iter().cloned()), 10).next().unwrap(),
-                        brightness(gamma(data.iter().cloned()), 10).next().unwrap(),
-                        brightness(gamma(data.iter().cloned()), 10).next().unwrap(),
-                        brightness(gamma(data.iter().cloned()), 10).next().unwrap(),
-                        brightness(gamma(data.iter().cloned()), 10).next().unwrap(),
+                        brightness(gamma(data.iter().cloned()), 25).next().unwrap(),
+                        brightness(gamma(data.iter().cloned()), 25).next().unwrap(),
+                        brightness(gamma(data.iter().cloned()), 25).next().unwrap(),
+                        brightness(gamma(data.iter().cloned()), 25).next().unwrap(),
+                        brightness(gamma(data.iter().cloned()), 25).next().unwrap(),
+                        brightness(gamma(data.iter().cloned()), 25).next().unwrap(),
+                        brightness(gamma(data.iter().cloned()), 25).next().unwrap(),
+                        brightness(gamma(data.iter().cloned()), 25).next().unwrap(),
                     ];
 
                     led1.write(data2.iter().cloned()).unwrap();
