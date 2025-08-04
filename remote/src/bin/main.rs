@@ -73,7 +73,18 @@ async fn main(spawner: Spawner) {
         Input::new(peripherals.GPIO35, c),
         ButtonConfig::default(),
     );
-    let mut ticker = Ticker::every(Duration::from_secs(5));
+
+    if !esp_now.peer_exists(&BROADCAST_ADDRESS) {
+        esp_now
+            .add_peer(PeerInfo {
+                interface: esp_wifi::esp_now::EspNowWifiInterface::Sta,
+                peer_address: BROADCAST_ADDRESS,
+                lmk: None,
+                channel: None,
+                encrypt: false,
+            })
+            .unwrap();
+    }
 
     loop {
         let event1 = async_button.update();
@@ -96,25 +107,8 @@ async fn main(spawner: Spawner) {
             }
         }
 
-        let res = select(ticker.next(), async {
-            let r = esp_now.receive_async().await;
-            println!("Received {:?}", r);
-            if r.info.dst_address == BROADCAST_ADDRESS {
-                if !esp_now.peer_exists(&r.info.src_address) {
-                    esp_now
-                        .add_peer(PeerInfo {
-                            interface: esp_wifi::esp_now::EspNowWifiInterface::Sta,
-                            peer_address: r.info.src_address,
-                            lmk: None,
-                            channel: None,
-                            encrypt: false,
-                        })
-                        .unwrap();
-                }
-                let status = esp_now.send_async(&r.info.src_address, b"Hello Peer").await;
-                println!("Send hello to peer status: {:?}", status);
-            }
-        })
-            .await;
+        let status = esp_now.send_async(&BROADCAST_ADDRESS, b"Hello Peer").await;
+        println!("Send hello to peer status: {:?}", status);
+
     }
 }

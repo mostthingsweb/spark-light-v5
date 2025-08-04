@@ -421,6 +421,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "esp-backtrace"
+version = "0.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5f270a29a3c4e492399b13e157b10151a7616cba69c4d554076ea93ed1bd2916"
+dependencies = [
+ "cfg-if",
+ "esp-config",
+ "esp-println",
+ "heapless",
+ "semihosting",
+]
+
+[[package]]
 name = "esp-bootloader-esp-idf"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -900,6 +913,7 @@ dependencies = [
  "embassy-futures",
  "embassy-time",
  "esp-alloc",
+ "esp-backtrace",
  "esp-bootloader-esp-idf",
  "esp-hal",
  "esp-hal-embassy",
@@ -1141,6 +1155,12 @@ name = "ryu"
 version = "1.0.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "28d3b2b1366ec20994f1fd18c3c594f05c5dd4bc44d8bb0c1c632c8d6829481f"
+
+[[package]]
+name = "semihosting"
+version = "0.1.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3e1c7d2b77d80283c750a39c52f1ab4d17234e8f30bca43550f5b2375f41d5f"
 
 [[package]]
 name = "serde"

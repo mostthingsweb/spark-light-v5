@@ -5,9 +5,11 @@
       <sourceFolder url="file://$MODULE_DIR$/i2c-test/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/remote/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/spark_messages/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/light/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/i2c-test/target" />
       <excludeFolder url="file://$MODULE_DIR$/remote/target" />
       <excludeFolder url="file://$MODULE_DIR$/spark_messages/target" />
+      <excludeFolder url="file://$MODULE_DIR$/light/target" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />

@@ -29,11 +29,11 @@ use esp_wifi::{
 };
 use esp_println::println;
 use embassy_futures::select::{Either, select};
+use esp_wifi::esp_now::{EspNowManager, EspNowReceiver};
+use esp_backtrace as _;
 
-#[panic_handler]
-fn panic(_: &core::panic::PanicInfo) -> ! {
-    loop {}
-}
+
+static REMOTE_MAC: [u8; 6] = [0xC8, 0xF0, 0x9E, 0x2C, 0x28, 0x8C];
 
 // This creates a default app-descriptor required by the esp-idf bootloader.
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
@@ -93,6 +93,28 @@ macro_rules! mk_static {
     }};
 }
 
+#[embassy_executor::task]
+async fn listener(manager: &'static EspNowManager<'static>, mut receiver: EspNowReceiver<'static>) {
+    loop {
+        let r = receiver.receive_async().await;
+        println!("Received {:?}", r.data());
+        if r.info.dst_address == BROADCAST_ADDRESS {
+            if !manager.peer_exists(&r.info.src_address) {
+                manager
+                    .add_peer(PeerInfo {
+                        interface: esp_wifi::esp_now::EspNowWifiInterface::Sta,
+                        peer_address: r.info.src_address,
+                        lmk: None,
+                        channel: None,
+                        encrypt: false,
+                    })
+                    .unwrap();
+                println!("Added peer {:?}", r.info.src_address);
+            }
+        }
+    }
+}
+
 #[esp_hal_embassy::main]
 async fn main(spawner: Spawner) {
     // generator version: 0.5.0
@@ -114,8 +136,6 @@ async fn main(spawner: Spawner) {
     let led3 = SmartLedsAdapter::new(rmt.channel2, peripherals.GPIO38, rmt_buffer);
     let led4 = SmartLedsAdapter::new(rmt.channel3, peripherals.GPIO37, rmt_buffer);
 
-    spawner.spawn(light_task(led1, led2, led3, led4)).unwrap();
-
     let timg0 = TimerGroup::new(peripherals.TIMG0);
 
     let esp_wifi_ctrl = &*mk_static!(EspWifiController<'static>,         init(timg0.timer0, Rng::new(peripherals.RNG)).unwrap());
@@ -130,38 +150,26 @@ async fn main(spawner: Spawner) {
 
     println!("esp-now version {}", esp_now.version().unwrap());
 
-
-    let mut ticker = Ticker::every(Duration::from_secs(5));
-    loop {
-        let res = select(ticker.next(), async {
-            let r = esp_now.receive_async().await;
-            println!("Received {:?}", r);
-            if r.info.dst_address == BROADCAST_ADDRESS {
-                if !esp_now.peer_exists(&r.info.src_address) {
-                    esp_now
-                        .add_peer(PeerInfo {
-                            interface: esp_wifi::esp_now::EspNowWifiInterface::Sta,
-                            peer_address: r.info.src_address,
-                            lmk: None,
-                            channel: None,
-                            encrypt: false,
-                        })
-                        .unwrap();
-                }
-                let status = esp_now.send_async(&r.info.src_address, b"Hello Peer").await;
-                println!("Send hello to peer status: {:?}", status);
-            }
+    println!("{:?}", REMOTE_MAC);
+    esp_now
+        .add_peer(PeerInfo {
+            interface: esp_wifi::esp_now::EspNowWifiInterface::Sta,
+            peer_address: BROADCAST_ADDRESS,
+            lmk: None,
+            channel: None,
+            encrypt: false,
         })
-            .await;
+        .unwrap();
 
-        match res {
-            Either::First(_) => {
-                println!("Send");
-                let status = esp_now.send_async(&BROADCAST_ADDRESS, b"0123456789").await;
-                println!("Send broadcast status: {:?}", status)
-            }
-            Either::Second(_) => (),
-        }
+
+    let (manager, sender, receiver) = esp_now.split();
+    let manager = mk_static!(EspNowManager<'static>, manager);
+    spawner.spawn(listener(manager, receiver)).ok();
+    spawner.spawn(light_task(led1, led2, led3, led4)).unwrap();
+
+    let mut ticker = Ticker::every(Duration::from_secs(1));
+    loop {
+        ticker.next().await;
     }
 
     // for inspiration have a look at the examples at https://github.com/esp-rs/esp-hal/tree/esp-hal-v1.0.0-rc.0/examples/src/bin
